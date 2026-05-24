@@ -3,6 +3,35 @@ import pool from '../db.js';
 
 const router = Router();
 
+function toDateKey(date) {
+  return date instanceof Date ? date.toISOString().split('T')[0] : date;
+}
+
+function buildDayDetails(dateStr, habits, entries) {
+  const completedIds = new Set(
+    entries
+      .filter(e => toDateKey(e.date) === dateStr)
+      .map(e => e.habit_id)
+  );
+  const completedHabits = habits
+    .filter(h => completedIds.has(h.id))
+    .map(h => ({ id: h.id, name: h.name, icon: h.icon }));
+  const missedHabits = habits
+    .filter(h => !completedIds.has(h.id))
+    .map(h => ({ id: h.id, name: h.name, icon: h.icon }));
+  const total = habits.length;
+  const completed = completedHabits.length;
+
+  return {
+    date: dateStr,
+    completed,
+    total,
+    completion_percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+    completed_habits: completedHabits,
+    missed_habits: missedHabits,
+  };
+}
+
 // GET /api/summary/weekly?date=2026-05-24
 router.get('/weekly', async (req, res) => {
   try {
@@ -16,11 +45,11 @@ router.get('/weekly', async (req, res) => {
     const startDate = monday.toISOString().split('T')[0];
     const endDate = sunday.toISOString().split('T')[0];
 
-    // Total habits (active)
     const habitsResult = await pool.query(
-      `SELECT COUNT(*) as count FROM habits WHERE archived = false`
+      `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
     );
-    const totalHabits = parseInt(habitsResult.rows[0].count) || 0;
+    const habits = habitsResult.rows;
+    const totalHabits = habits.length;
 
     // Entries this week
     const entriesResult = await pool.query(
@@ -53,11 +82,7 @@ router.get('/weekly', async (req, res) => {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const dateStr = d.toISOString().split('T')[0];
-      const count = entriesResult.rows.filter(e => {
-        const ed = e.date instanceof Date ? e.date.toISOString().split('T')[0] : e.date;
-        return ed === dateStr;
-      }).length;
-      dailyBreakdown.push({ date: dateStr, completed: count, total: totalHabits });
+      dailyBreakdown.push(buildDayDetails(dateStr, habits, entriesResult.rows));
     }
 
     res.json({
@@ -69,6 +94,7 @@ router.get('/weekly', async (req, res) => {
       best_habit: best,
       weakest_habit: weakest,
       daily_breakdown: dailyBreakdown,
+      daily_details: dailyBreakdown,
     });
   } catch (err) {
     console.error('Error fetching weekly summary:', err);
@@ -87,13 +113,13 @@ router.get('/monthly', async (req, res) => {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     const habitsResult = await pool.query(
-      `SELECT id, name, icon FROM habits WHERE archived = false`
+      `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
     );
     const habits = habitsResult.rows;
     const totalHabits = habits.length;
 
     const entriesResult = await pool.query(
-      `SELECT he.habit_id, he.date FROM habit_entries he
+      `SELECT he.habit_id, he.date, h.name, h.icon FROM habit_entries he
        JOIN habits h ON h.id = he.habit_id
        WHERE he.date >= $1 AND he.date <= $2 AND h.archived = false`,
       [startDate, endDate]
@@ -111,12 +137,14 @@ router.get('/monthly', async (req, res) => {
 
     // Calendar data (day → count)
     const calendar = {};
+    const dailyDetails = {};
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       calendar[dateStr] = 0;
+      dailyDetails[dateStr] = buildDayDetails(dateStr, habits, entriesResult.rows);
     }
     entriesResult.rows.forEach(e => {
-      const dateStr = e.date instanceof Date ? e.date.toISOString().split('T')[0] : e.date;
+      const dateStr = toDateKey(e.date);
       if (calendar[dateStr] !== undefined) calendar[dateStr]++;
     });
 
@@ -144,6 +172,7 @@ router.get('/monthly', async (req, res) => {
       days_in_month: daysInMonth,
       most_consistent_habit: mostConsistent,
       calendar,
+      daily_details: dailyDetails,
     });
   } catch (err) {
     console.error('Error fetching monthly summary:', err);

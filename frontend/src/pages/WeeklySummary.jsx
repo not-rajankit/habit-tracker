@@ -3,6 +3,43 @@ import { getWeeklySummary } from '../api';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+function DayTooltip({ day }) {
+  const completedPreview = day.completed_habits?.slice(0, 3) || [];
+  const missedPreview = day.missed_habits?.slice(0, 3) || [];
+
+  return (
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 hidden w-64 -translate-x-1/2 rounded-xl border border-surface-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold text-gray-800">{day.date}</p>
+        <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand-600">
+          {day.completion_percentage}%
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-400">
+        {day.completed}/{day.total} habits completed
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase text-accent-green">Done</p>
+          <div className="mt-1 space-y-1">
+            {completedPreview.length > 0 ? completedPreview.map((habit) => (
+              <p key={habit.id} className="truncate text-[11px] text-gray-600">{habit.icon} {habit.name}</p>
+            )) : <p className="text-[11px] text-gray-300">None</p>}
+          </div>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase text-accent-orange">Left</p>
+          <div className="mt-1 space-y-1">
+            {missedPreview.length > 0 ? missedPreview.map((habit) => (
+              <p key={habit.id} className="truncate text-[11px] text-gray-600">{habit.icon} {habit.name}</p>
+            )) : <p className="text-[11px] text-gray-300">All done</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WeeklySummary() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +94,7 @@ export default function WeeklySummary() {
       </div>
 
       {/* Summary card */}
-      <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-5 mb-6 text-white shadow-xl shadow-purple-200/50">
+      <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-2xl p-5 mb-6 text-white shadow-xl shadow-purple-200/50 lg:p-6">
         <p className="text-purple-200 text-sm font-medium">This Week</p>
         <div className="flex items-baseline gap-2 mt-1">
           <span className="text-4xl font-bold">{data.completion_percentage}%</span>
@@ -69,16 +106,17 @@ export default function WeeklySummary() {
       </div>
 
       {/* Daily bars */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-surface-200/60 mb-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-surface-200/60 mb-4 lg:p-6">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Daily Breakdown</h3>
-        <div className="flex items-end justify-between gap-2 h-32">
+        <div className="flex items-end justify-between gap-2 h-36 sm:h-44 lg:h-56">
           {data.daily_breakdown?.map((day, i) => {
             const height = maxDayCount > 0 ? (day.completed / maxDayCount) * 100 : 0;
             const isToday = day.date === new Date().toISOString().split('T')[0];
             return (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+              <div key={i} className="group relative flex-1 flex flex-col items-center gap-1.5" tabIndex={0}>
+                <DayTooltip day={day} />
                 <span className="text-[10px] text-gray-400 font-medium">{day.completed}</span>
-                <div className="w-full bg-surface-100 rounded-lg relative" style={{ height: '80px' }}>
+                <div className="w-full bg-surface-100 rounded-lg relative min-h-24 lg:min-h-40">
                   <div
                     className={`absolute bottom-0 w-full rounded-lg transition-all duration-500 ${isToday ? 'bg-brand-500' : 'bg-brand-300'}`}
                     style={{ height: `${height}%` }}
@@ -94,7 +132,7 @@ export default function WeeklySummary() {
       </div>
 
       {/* Best & Weakest */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {data.best_habit && (
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-surface-200/60">
             <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Best Habit</p>

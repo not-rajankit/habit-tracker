@@ -1,6 +1,44 @@
 import { useState, useEffect } from 'react';
 import { getMonthlySummary } from '../api';
 
+function DayTooltip({ details }) {
+  if (!details) return null;
+  const completedPreview = details.completed_habits?.slice(0, 4) || [];
+  const missedPreview = details.missed_habits?.slice(0, 4) || [];
+
+  return (
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-64 -translate-x-1/2 rounded-xl border border-surface-200 bg-white p-3 text-left shadow-xl group-hover:block group-focus-within:block">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold text-gray-800">{details.date}</p>
+        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+          {details.completion_percentage}%
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-gray-400">
+        {details.completed}/{details.total} habits completed
+      </p>
+      <div className="mt-3 space-y-2">
+        <div>
+          <p className="text-[10px] font-semibold uppercase text-accent-green">Completed</p>
+          <p className="mt-1 text-[11px] text-gray-600">
+            {completedPreview.length > 0
+              ? completedPreview.map((habit) => `${habit.icon} ${habit.name}`).join(', ')
+              : 'No habits completed'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase text-accent-orange">Remaining</p>
+          <p className="mt-1 text-[11px] text-gray-600">
+            {missedPreview.length > 0
+              ? missedPreview.map((habit) => `${habit.icon} ${habit.name}`).join(', ')
+              : 'All habits complete'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MonthlySummary() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -75,7 +113,7 @@ export default function MonthlySummary() {
       </div>
 
       {/* Stats cards */}
-      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 mb-6 text-white shadow-xl shadow-emerald-200/50">
+      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 mb-6 text-white shadow-xl shadow-emerald-200/50 lg:p-6">
         <p className="text-emerald-100 text-sm font-medium">Monthly Overview</p>
         <div className="flex items-baseline gap-2 mt-1">
           <span className="text-4xl font-bold">{data.completion_percentage}%</span>
@@ -92,7 +130,7 @@ export default function MonthlySummary() {
       </div>
 
       {/* Calendar heatmap */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-surface-200/60 mb-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-surface-200/60 mb-4 lg:p-6">
         <h3 className="text-sm font-semibold text-gray-700 mb-3">Activity Calendar</h3>
         <div className="grid grid-cols-7 gap-1 mb-2">
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
@@ -105,12 +143,15 @@ export default function MonthlySummary() {
             const todayStr = new Date().toISOString().split('T')[0];
             const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`;
             const isToday = dateStr === todayStr;
+            const details = data.daily_details?.[dateStr];
             return (
               <div
                 key={i}
-                className={`aspect-square rounded-lg flex items-center justify-center text-[11px] font-medium transition-all ${getHeatColor(day.count)} ${isToday ? 'ring-2 ring-brand-400 ring-offset-1' : ''}`}
+                tabIndex={0}
+                className={`group relative aspect-square rounded-lg flex items-center justify-center text-[11px] font-medium transition-all focus:outline-none focus:ring-2 focus:ring-brand-300 ${getHeatColor(day.count)} ${isToday ? 'ring-2 ring-brand-400 ring-offset-1' : ''}`}
                 title={`${dateStr}: ${day.count} habits`}
               >
+                <DayTooltip details={details} />
                 {day.day}
               </div>
             );

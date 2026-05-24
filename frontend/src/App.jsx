@@ -16,9 +16,9 @@ const navItems = [
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-surface-50 flex flex-col">
+      <div className="min-h-screen bg-surface-50 lg:flex">
         {/* Main content */}
-        <main className="flex-1 max-w-lg mx-auto w-full pb-24 px-4">
+        <main className="flex-1 w-full max-w-6xl mx-auto pb-24 lg:pb-8 lg:pl-32 px-4 sm:px-6 lg:px-8">
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/table" element={<HabitTable />} />
@@ -29,14 +29,14 @@ export default function App() {
         </main>
 
         {/* Bottom navigation */}
-        <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-surface-200 z-50">
-          <div className="max-w-lg mx-auto flex justify-around py-2">
+        <nav className="fixed bottom-0 left-0 right-0 bg-white/85 backdrop-blur-xl border-t border-surface-200 z-50 lg:top-0 lg:right-auto lg:w-24 lg:border-t-0 lg:border-r">
+          <div className="max-w-lg mx-auto flex justify-around py-2 lg:max-w-none lg:h-full lg:flex-col lg:justify-start lg:gap-2 lg:px-3 lg:py-8">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-all text-xs font-medium ${
+                  `flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all text-xs font-medium lg:px-2 lg:py-3 ${
                     isActive
                       ? 'text-brand-600 bg-brand-50'
                       : 'text-gray-400 hover:text-gray-600'

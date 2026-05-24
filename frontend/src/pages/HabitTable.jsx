@@ -9,6 +9,7 @@ import {
   updateHabit,
   updateHabitOrder,
 } from '../api';
+import HabitModal from '../components/HabitModal';
 
 const WEEKDAY_NARROW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_NAMES = [
@@ -74,6 +75,8 @@ export default function HabitTable() {
   const tableScrollRef = useRef(null);
   const autoScrolledPeriodRef = useRef('');
   const scrollMemoryRef = useRef({});
+  const editHabitsRef = useRef([]);
+  const pendingOrderIdsRef = useRef(null);
   const [mode, setMode] = useState('week');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [habits, setHabits] = useState([]);
@@ -88,6 +91,11 @@ export default function HabitTable() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [editSearch, setEditSearch] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [openActionHabitId, setOpenActionHabitId] = useState(null);
+  const [keyboardMoveHabitId, setKeyboardMoveHabitId] = useState(null);
+  const [pendingOrderIds, setPendingOrderIds] = useState(null);
+  const [orderBeforeKeyboardMove, setOrderBeforeKeyboardMove] = useState(null);
+  const [habitModalTarget, setHabitModalTarget] = useState(null);
 
   const days = useMemo(
     () => (mode === 'week' ? buildWeekDays(periodOffset) : buildMonthDays(periodOffset)),
@@ -131,6 +139,30 @@ export default function HabitTable() {
     if (editMode) setEditHabits(editableDailyHabits);
   }, [editableDailyHabits, editMode]);
 
+  useEffect(() => {
+    editHabitsRef.current = editHabits;
+  }, [editHabits]);
+
+  useEffect(() => {
+    pendingOrderIdsRef.current = pendingOrderIds;
+  }, [pendingOrderIds]);
+
+  useEffect(() => {
+    if (!openActionHabitId) return;
+
+    const closeActions = () => setOpenActionHabitId(null);
+    const closeActionsOnEscape = (event) => {
+      if (event.key === 'Escape') closeActions();
+    };
+
+    document.addEventListener('click', closeActions);
+    document.addEventListener('keydown', closeActionsOnEscape);
+    return () => {
+      document.removeEventListener('click', closeActions);
+      document.removeEventListener('keydown', closeActionsOnEscape);
+    };
+  }, [openActionHabitId]);
+
   const completedKeys = useMemo(() => {
     const keys = new Set();
     entries.forEach((entry) => {
@@ -167,8 +199,8 @@ export default function HabitTable() {
     return `${habitColumn} ${dayColumns} ${resultColumn}`;
   }, [days, endDate, mode]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) setLoading(true);
     try {
       const [habitData, entryData] = await Promise.all([
         getHabits({ include_archived: true }),
@@ -179,7 +211,7 @@ export default function HabitTable() {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [endDate, startDate]);
 
@@ -229,26 +261,125 @@ export default function HabitTable() {
     return () => cancelAnimationFrame(frameId);
   }, [dailyHabits.length, days, loading, mode, periodKey, todayKey]);
 
-  const rememberTableScroll = () => {
+  const rememberTableScroll = useCallback(() => {
     if (mode === 'month' && tableScrollRef.current) {
       scrollMemoryRef.current[periodKey] = tableScrollRef.current.scrollLeft;
     }
-  };
+  }, [mode, periodKey]);
+
+  const persistHabitOrder = useCallback(async (orderIds = pendingOrderIdsRef.current) => {
+    if (!orderIds?.length) return;
+
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await updateHabitOrder(orderIds);
+      await fetchData();
+      pendingOrderIdsRef.current = null;
+      setPendingOrderIds(null);
+    } catch (err) {
+      console.error(err);
+      setEditHabits(editableDailyHabits);
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editableDailyHabits, fetchData, rememberTableScroll]);
+
+  const moveHabitLocally = useCallback((habitId, direction) => {
+    const current = editHabitsRef.current;
+    const activeHabits = current.filter((habit) => !habit.archived);
+    const archivedHabits = current.filter((habit) => habit.archived);
+    const fromIndex = activeHabits.findIndex((habit) => habit.id === habitId);
+    const toIndex = fromIndex + direction;
+    if (fromIndex === -1 || toIndex < 0 || toIndex >= activeHabits.length) return;
+
+    const nextActiveHabits = [...activeHabits];
+    const [movedHabit] = nextActiveHabits.splice(fromIndex, 1);
+    nextActiveHabits.splice(toIndex, 0, movedHabit);
+
+    const nextEditHabits = [...nextActiveHabits, ...archivedHabits];
+    const nextOrderIds = nextActiveHabits.map((habit) => habit.id);
+    editHabitsRef.current = nextEditHabits;
+    pendingOrderIdsRef.current = nextOrderIds;
+    setEditHabits(nextEditHabits);
+    setPendingOrderIds(nextOrderIds);
+  }, []);
+
+  useEffect(() => {
+    if (!keyboardMoveHabitId) return;
+
+    const handleKeyboardMove = (event) => {
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        moveHabitLocally(keyboardMoveHabitId, -1);
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        moveHabitLocally(keyboardMoveHabitId, 1);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        setKeyboardMoveHabitId(null);
+        setOrderBeforeKeyboardMove(null);
+        persistHabitOrder();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        if (orderBeforeKeyboardMove) {
+          editHabitsRef.current = orderBeforeKeyboardMove;
+          setEditHabits(orderBeforeKeyboardMove);
+        }
+        pendingOrderIdsRef.current = null;
+        setPendingOrderIds(null);
+        setKeyboardMoveHabitId(null);
+        setOrderBeforeKeyboardMove(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyboardMove);
+    return () => document.removeEventListener('keydown', handleKeyboardMove);
+  }, [keyboardMoveHabitId, moveHabitLocally, orderBeforeKeyboardMove, persistHabitOrder]);
 
   const handleModeChange = (nextMode) => {
     setMode(nextMode);
     setPeriodOffset(0);
   };
 
+  const setEntryCompletion = (habitId, date, completed) => {
+    setEntries((currentEntries) => {
+      const normalizedDate = normalizeEntryDate(date);
+      const exists = currentEntries.some(
+        (entry) => entry.habit_id === habitId && normalizeEntryDate(entry.date) === normalizedDate
+      );
+
+      if (completed) {
+        if (exists) return currentEntries;
+        return [
+          ...currentEntries,
+          {
+            id: `optimistic-${habitId}-${normalizedDate}`,
+            habit_id: habitId,
+            date: normalizedDate,
+          },
+        ];
+      }
+
+      if (!exists) return currentEntries;
+      return currentEntries.filter(
+        (entry) => !(entry.habit_id === habitId && normalizeEntryDate(entry.date) === normalizedDate)
+      );
+    });
+  };
+
   const handleToggle = async (habitId, date) => {
     const key = `${habitId}-${date}`;
+    const wasCompleted = completedKeys.has(key);
     rememberTableScroll();
     setSavingKey(key);
+    setEntryCompletion(habitId, date, !wasCompleted);
     try {
-      await toggleEntry(habitId, date);
-      await fetchData();
+      const result = await toggleEntry(habitId, date);
+      setEntryCompletion(habitId, result.date || date, result.completed);
     } catch (err) {
       console.error(err);
+      setEntryCompletion(habitId, date, wasCompleted);
     } finally {
       setSavingKey('');
     }
@@ -261,11 +392,17 @@ export default function HabitTable() {
     setEditMode(true);
   };
 
-  const closeEditView = () => {
+  const closeEditView = async () => {
+    if (pendingOrderIdsRef.current) await persistHabitOrder();
     setDraggedHabitId(null);
+    setKeyboardMoveHabitId(null);
+    pendingOrderIdsRef.current = null;
+    setPendingOrderIds(null);
+    setOrderBeforeKeyboardMove(null);
     setNewHabitName('');
     setEditSearch('');
     setShowArchived(false);
+    setOpenActionHabitId(null);
     setEditMode(false);
   };
 
@@ -320,8 +457,17 @@ export default function HabitTable() {
     }
   };
 
+  const startKeyboardMove = (habit) => {
+    setOrderBeforeKeyboardMove(editHabits);
+    setKeyboardMoveHabitId(habit.id);
+    pendingOrderIdsRef.current = null;
+    setPendingOrderIds(null);
+    setOpenActionHabitId(null);
+  };
+
   const handleArchiveToggle = async (habit) => {
     rememberTableScroll();
+    setOpenActionHabitId(null);
     setEditSaving(true);
     try {
       await archiveHabit(habit.id, !habit.archived);
@@ -335,6 +481,7 @@ export default function HabitTable() {
 
   const handleDeleteHabit = async (habit) => {
     rememberTableScroll();
+    setOpenActionHabitId(null);
     setEditSaving(true);
     try {
       await deleteHabitPermanent(habit.id);
@@ -364,6 +511,87 @@ export default function HabitTable() {
     } finally {
       setEditSaving(false);
     }
+  };
+
+  const renderHabitActions = (habit) => {
+    const orderedActiveHabits = editHabits.filter((item) => !item.archived);
+    const orderedArchivedHabits = editHabits.filter((item) => item.archived);
+    const activeIndex = orderedActiveHabits.findIndex((item) => item.id === habit.id);
+    const archivedIndex = orderedArchivedHabits.findIndex((item) => item.id === habit.id);
+    const shouldOpenUp = habit.archived
+      ? archivedIndex >= Math.max(orderedArchivedHabits.length - 2, 0)
+      : activeIndex >= Math.max(orderedActiveHabits.length - 2, 0);
+
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpenActionHabitId((current) => current === habit.id ? null : habit.id);
+          }}
+          disabled={editSaving}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-lg leading-none text-gray-400 hover:bg-white hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          title="More actions"
+          aria-label={`More actions for ${habit.name}`}
+        >
+          ⋯
+          </button>
+
+        {openActionHabitId === habit.id && (
+          <div
+            className={`absolute right-0 z-50 w-36 overflow-hidden rounded-xl border border-surface-200 bg-white py-1 shadow-xl ${
+              shouldOpenUp ? 'bottom-9' : 'top-9'
+            }`}
+            onClick={(event) => event.stopPropagation()}
+          >
+          {!habit.archived && (
+            <>
+              <button
+                type="button"
+                onClick={() => startKeyboardMove(habit)}
+                disabled={editSaving}
+                className="block w-full px-3 py-2 text-left text-xs font-semibold text-gray-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Move with arrows
+              </button>
+              <div className="my-1 border-t border-surface-100" />
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setOpenActionHabitId(null);
+              setHabitModalTarget(habit);
+            }}
+            disabled={editSaving}
+            className="block w-full px-3 py-2 text-left text-xs font-semibold text-gray-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => handleArchiveToggle(habit)}
+              disabled={editSaving}
+              className="block w-full px-3 py-2 text-left text-xs font-semibold text-gray-600 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {habit.archived ? 'Restore' : 'Archive'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpenActionHabitId(null);
+                setDeleteTarget(habit);
+              }}
+              disabled={editSaving}
+              className="block w-full px-3 py-2 text-left text-xs font-semibold text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading) {
@@ -409,7 +637,7 @@ export default function HabitTable() {
       </div>
 
       {editMode && (
-        <div className="mb-5 rounded-2xl border border-surface-200/70 bg-white shadow-sm">
+        <div className="mb-5 overflow-visible rounded-2xl border border-surface-200/70 bg-white shadow-sm">
           <div className="border-b border-surface-100 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -418,7 +646,11 @@ export default function HabitTable() {
                   {dailyHabits.length} active, {editableDailyHabits.length - dailyHabits.length} archived
                 </p>
               </div>
-              {editSaving && <span className="text-xs font-semibold text-gray-400">Saving...</span>}
+              {(editSaving || pendingOrderIds || keyboardMoveHabitId) && (
+                <span className="text-xs font-semibold text-gray-400">
+                  {keyboardMoveHabitId ? 'Use arrows, Enter to save' : pendingOrderIds ? 'Order not saved' : 'Saving...'}
+                </span>
+              )}
             </div>
 
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -446,38 +678,46 @@ export default function HabitTable() {
             </div>
           </div>
 
-          <div className="max-h-[48vh] space-y-4 overflow-y-auto p-4">
+          <div className="space-y-4 p-4">
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Active</h3>
                 <span className="text-xs font-semibold text-gray-300">{activeEditHabits.length}</span>
               </div>
+              {keyboardMoveHabitId && (
+                <div className="mb-2 rounded-xl border border-brand-100 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700">
+                  Move mode: use Up/Down arrows, Enter to save, Escape to cancel.
+                </div>
+              )}
               {activeEditHabits.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-surface-200 bg-surface-50 px-3 py-6 text-center text-sm text-gray-400">
                   No active habits found.
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="max-h-[min(62vh,680px)] min-h-40 space-y-1.5 overflow-y-auto pr-1">
                   {activeEditHabits.map((habit) => (
                     <div
                       key={habit.id}
-                      draggable
-                      onDragStart={() => setDraggedHabitId(habit.id)}
                       onDragEnd={() => setDraggedHabitId(null)}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={() => reorderEditHabits(habit.id)}
-                      className={`grid grid-cols-[36px_24px_minmax(0,1fr)] gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 sm:grid-cols-[36px_24px_minmax(0,1fr)_auto_auto] ${
+                      className={`group relative grid grid-cols-[32px_24px_minmax(0,1fr)_34px] items-center gap-2 rounded-xl border border-surface-200 bg-surface-50 px-2.5 py-1.5 ${
+                        keyboardMoveHabitId === habit.id ? 'border-brand-300 bg-brand-50 ring-2 ring-brand-100' : ''
+                      } ${
                         draggedHabitId === habit.id ? 'opacity-50' : ''
                       }`}
                     >
                       <button
                         type="button"
-                        className="flex h-9 w-9 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 active:cursor-grabbing"
+                        draggable
+                        onDragStart={() => setDraggedHabitId(habit.id)}
+                        className="flex h-8 w-8 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 opacity-100 shadow-sm transition-opacity active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                         title="Drag to reorder"
+                        aria-label={`Drag ${habit.name} to reorder`}
                       >
                         ☰
                       </button>
-                      <span className="flex h-9 items-center justify-center text-base">{habit.icon}</span>
+                      <span className="flex h-8 items-center justify-center text-base">{habit.icon}</span>
                       <input
                         value={habit.name}
                         onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
@@ -485,24 +725,9 @@ export default function HabitTable() {
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') event.currentTarget.blur();
                         }}
-                        className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-brand-200"
+                        className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-brand-200"
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleArchiveToggle(habit)}
-                        disabled={editSaving}
-                        className="rounded-lg bg-surface-100 px-3 py-2 text-xs font-semibold text-gray-500 hover:bg-surface-200 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Archive
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(habit)}
-                        disabled={editSaving}
-                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Delete
-                      </button>
+                      {renderHabitActions(habit)}
                     </div>
                   ))}
                 </div>
@@ -524,7 +749,7 @@ export default function HabitTable() {
                 </button>
 
                 {showArchived && (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto pr-1">
                     {archivedEditHabits.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-surface-200 bg-surface-50 px-3 py-5 text-center text-sm text-gray-400">
                         No archived habits found.
@@ -533,9 +758,9 @@ export default function HabitTable() {
                       archivedEditHabits.map((habit) => (
                         <div
                           key={habit.id}
-                          className="grid grid-cols-[24px_minmax(0,1fr)] gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 opacity-80 sm:grid-cols-[24px_minmax(0,1fr)_auto_auto]"
+                          className="grid grid-cols-[24px_minmax(0,1fr)_34px] items-center gap-2 rounded-xl border border-surface-200 bg-surface-50 px-2.5 py-1.5 opacity-80"
                         >
-                          <span className="flex h-9 items-center justify-center text-base">{habit.icon}</span>
+                          <span className="flex h-8 items-center justify-center text-base">{habit.icon}</span>
                           <input
                             value={habit.name}
                             onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
@@ -543,24 +768,9 @@ export default function HabitTable() {
                             onKeyDown={(event) => {
                               if (event.key === 'Enter') event.currentTarget.blur();
                             }}
-                            className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-400 line-through outline-none focus:ring-2 focus:ring-brand-200"
+                            className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-400 line-through outline-none focus:ring-2 focus:ring-brand-200"
                           />
-                          <button
-                            type="button"
-                            onClick={() => handleArchiveToggle(habit)}
-                            disabled={editSaving}
-                            className="rounded-lg bg-accent-green/10 px-3 py-2 text-xs font-semibold text-accent-green hover:bg-accent-green/15 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Restore
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteTarget(habit)}
-                            disabled={editSaving}
-                            className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Delete
-                          </button>
+                          {renderHabitActions(habit)}
                         </div>
                       ))
                     )}
@@ -608,6 +818,14 @@ export default function HabitTable() {
             </div>
           </div>
         </div>
+      )}
+
+      {habitModalTarget && (
+        <HabitModal
+          habit={habitModalTarget}
+          onClose={() => setHabitModalTarget(null)}
+          onSaved={() => fetchData()}
+        />
       )}
 
       <div className="mb-5 flex items-center justify-between">

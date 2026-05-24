@@ -4,6 +4,7 @@ import WeeklySummary from './pages/WeeklySummary';
 import MonthlySummary from './pages/MonthlySummary';
 import Goals from './pages/Goals';
 import HabitTable from './pages/HabitTable';
+import Manage from './pages/Manage';
 
 const navItems = [
   { to: '/', label: 'Today', icon: '☀️' },
@@ -11,6 +12,7 @@ const navItems = [
   { to: '/weekly', label: 'Week', icon: '📊' },
   { to: '/monthly', label: 'Month', icon: '📅' },
   { to: '/goals', label: 'Goals', icon: '🎯' },
+  { to: '/manage', label: 'Manage', icon: '⚙️' },
 ];
 
 export default function App() {
@@ -25,6 +27,7 @@ export default function App() {
             <Route path="/weekly" element={<WeeklySummary />} />
             <Route path="/monthly" element={<MonthlySummary />} />
             <Route path="/goals" element={<Goals />} />
+            <Route path="/manage" element={<Manage />} />
           </Routes>
         </main>
 

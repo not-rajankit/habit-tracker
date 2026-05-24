@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "app:start": "./scripts/run-app.sh start",
+    "app:stop": "./scripts/run-app.sh stop",
+    "app:restart": "./scripts/run-app.sh restart",
+    "app:status": "./scripts/run-app.sh status",
+    "app:logs": "./scripts/run-app.sh logs",
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
     "migrate": "npm --prefix backend run migrate",
     "build": "npm --prefix frontend run build",

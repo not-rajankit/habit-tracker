@@ -13,11 +13,16 @@ async function request(path, options = {}) {
 }
 
 // Habits
-export const getHabits = () => request('/habits');
+export const getHabits = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/habits${qs ? `?${qs}` : ''}`);
+};
 export const createHabit = (data) => request('/habits', { method: 'POST', body: JSON.stringify(data) });
 export const updateHabit = (id, data) => request(`/habits/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const updateHabitOrder = (habit_ids) => request('/habits/order', { method: 'PUT', body: JSON.stringify({ habit_ids }) });
+export const archiveHabit = (id, archived) => updateHabit(id, { archived });
 export const deleteHabit = (id) => request(`/habits/${id}`, { method: 'DELETE' });
+export const deleteHabitPermanent = (id) => request(`/habits/${id}/permanent`, { method: 'DELETE' });
 
 // Entries
 export const toggleEntry = (habit_id, date) => request('/entries/toggle', { method: 'POST', body: JSON.stringify({ habit_id, date }) });

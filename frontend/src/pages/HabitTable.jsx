@@ -1,5 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createHabit, getEntries, getHabits, toggleEntry, updateHabit, updateHabitOrder } from '../api';
+import {
+  archiveHabit,
+  createHabit,
+  deleteHabitPermanent,
+  getEntries,
+  getHabits,
+  toggleEntry,
+  updateHabit,
+  updateHabitOrder,
+} from '../api';
 
 const WEEKDAY_NARROW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_NAMES = [
@@ -76,6 +85,9 @@ export default function HabitTable() {
   const [draggedHabitId, setDraggedHabitId] = useState(null);
   const [newHabitName, setNewHabitName] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [editSearch, setEditSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
   const days = useMemo(
     () => (mode === 'week' ? buildWeekDays(periodOffset) : buildMonthDays(periodOffset)),
@@ -89,13 +101,35 @@ export default function HabitTable() {
   const yesterdayKey = toDateKey(addDays(new Date(), -1));
 
   const dailyHabits = useMemo(
+    () => habits.filter((habit) => habit.frequency === 'daily' && !habit.archived),
+    [habits]
+  );
+
+  const editableDailyHabits = useMemo(
     () => habits.filter((habit) => habit.frequency === 'daily'),
     [habits]
   );
 
+  const editSearchTerm = editSearch.trim().toLowerCase();
+  const activeEditHabits = useMemo(
+    () =>
+      editHabits.filter((habit) =>
+        !habit.archived && habit.name.toLowerCase().includes(editSearchTerm)
+      ),
+    [editHabits, editSearchTerm]
+  );
+
+  const archivedEditHabits = useMemo(
+    () =>
+      editHabits.filter((habit) =>
+        habit.archived && habit.name.toLowerCase().includes(editSearchTerm)
+      ),
+    [editHabits, editSearchTerm]
+  );
+
   useEffect(() => {
-    if (editMode) setEditHabits(dailyHabits);
-  }, [dailyHabits, editMode]);
+    if (editMode) setEditHabits(editableDailyHabits);
+  }, [editableDailyHabits, editMode]);
 
   const completedKeys = useMemo(() => {
     const keys = new Set();
@@ -137,7 +171,7 @@ export default function HabitTable() {
     setLoading(true);
     try {
       const [habitData, entryData] = await Promise.all([
-        getHabits(),
+        getHabits({ include_archived: true }),
         getEntries({ start_date: startDate, end_date: endDate }),
       ]);
       setHabits(habitData);
@@ -221,14 +255,17 @@ export default function HabitTable() {
   };
 
   const openEditView = () => {
-    setEditHabits(dailyHabits);
+    setEditHabits(editableDailyHabits);
     setNewHabitName('');
+    setEditSearch('');
     setEditMode(true);
   };
 
   const closeEditView = () => {
     setDraggedHabitId(null);
     setNewHabitName('');
+    setEditSearch('');
+    setShowArchived(false);
     setEditMode(false);
   };
 
@@ -240,7 +277,7 @@ export default function HabitTable() {
 
   const saveHabitName = async (habit) => {
     const nextName = habit.name.trim();
-    const original = dailyHabits.find((item) => item.id === habit.id);
+    const original = editableDailyHabits.find((item) => item.id === habit.id);
     if (!nextName || !original || nextName === original.name) return;
 
     rememberTableScroll();
@@ -258,24 +295,53 @@ export default function HabitTable() {
   const reorderEditHabits = async (targetHabitId) => {
     if (!draggedHabitId || draggedHabitId === targetHabitId) return;
 
-    const fromIndex = editHabits.findIndex((habit) => habit.id === draggedHabitId);
-    const toIndex = editHabits.findIndex((habit) => habit.id === targetHabitId);
+    const activeHabits = editHabits.filter((habit) => !habit.archived);
+    const archivedHabits = editHabits.filter((habit) => habit.archived);
+    const fromIndex = activeHabits.findIndex((habit) => habit.id === draggedHabitId);
+    const toIndex = activeHabits.findIndex((habit) => habit.id === targetHabitId);
     if (fromIndex === -1 || toIndex === -1) return;
 
-    const nextHabits = [...editHabits];
-    const [movedHabit] = nextHabits.splice(fromIndex, 1);
-    nextHabits.splice(toIndex, 0, movedHabit);
-    setEditHabits(nextHabits);
+    const nextActiveHabits = [...activeHabits];
+    const [movedHabit] = nextActiveHabits.splice(fromIndex, 1);
+    nextActiveHabits.splice(toIndex, 0, movedHabit);
+    setEditHabits([...nextActiveHabits, ...archivedHabits]);
     setDraggedHabitId(null);
 
     rememberTableScroll();
     setEditSaving(true);
     try {
-      await updateHabitOrder(nextHabits.map((habit) => habit.id));
+      await updateHabitOrder(nextActiveHabits.map((habit) => habit.id));
       await fetchData();
     } catch (err) {
       console.error(err);
-      setEditHabits(dailyHabits);
+      setEditHabits(editableDailyHabits);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleArchiveToggle = async (habit) => {
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await archiveHabit(habit.id, !habit.archived);
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleDeleteHabit = async (habit) => {
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await deleteHabitPermanent(habit.id);
+      setDeleteTarget(null);
+      await fetchData();
+    } catch (err) {
+      console.error(err);
     } finally {
       setEditSaving(false);
     }
@@ -291,6 +357,7 @@ export default function HabitTable() {
     try {
       await createHabit({ name, frequency: 'daily', icon: '✅' });
       setNewHabitName('');
+      setEditSearch('');
       await fetchData();
     } catch (err) {
       console.error(err);
@@ -342,64 +409,204 @@ export default function HabitTable() {
       </div>
 
       {editMode && (
-        <div className="mb-5 rounded-2xl border border-surface-200/70 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-bold text-gray-800">Edit Table Habits</h2>
-              <p className="mt-0.5 text-xs text-gray-400">Drag rows to reorder. Rename titles inline.</p>
+        <div className="mb-5 rounded-2xl border border-surface-200/70 bg-white shadow-sm">
+          <div className="border-b border-surface-100 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-bold text-gray-800">Edit Table Habits</h2>
+                <p className="mt-0.5 text-xs text-gray-400">
+                  {dailyHabits.length} active, {editableDailyHabits.length - dailyHabits.length} archived
+                </p>
+              </div>
+              {editSaving && <span className="text-xs font-semibold text-gray-400">Saving...</span>}
             </div>
-            {editSaving && <span className="text-xs font-semibold text-gray-400">Saving...</span>}
+
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <input
+                value={editSearch}
+                onChange={(event) => setEditSearch(event.target.value)}
+                placeholder="Search habits"
+                className="min-w-0 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-gray-700 outline-none placeholder:text-gray-300 focus:ring-2 focus:ring-brand-200"
+              />
+              <form onSubmit={handleAddHabit} className="flex gap-2">
+                <input
+                  value={newHabitName}
+                  onChange={(event) => setNewHabitName(event.target.value)}
+                  placeholder="New daily habit"
+                  className="min-w-0 flex-1 rounded-xl border border-surface-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none placeholder:text-gray-300 focus:ring-2 focus:ring-brand-200 sm:w-52"
+                />
+                <button
+                  type="submit"
+                  disabled={!newHabitName.trim() || editSaving}
+                  className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </form>
+            </div>
           </div>
 
-          <div className="space-y-2">
-            {editHabits.map((habit) => (
-              <div
-                key={habit.id}
-                draggable
-                onDragStart={() => setDraggedHabitId(habit.id)}
-                onDragEnd={() => setDraggedHabitId(null)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => reorderEditHabits(habit.id)}
-                className={`flex items-center gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 ${
-                  draggedHabitId === habit.id ? 'opacity-50' : ''
-                }`}
-              >
+          <div className="max-h-[48vh] space-y-4 overflow-y-auto p-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">Active</h3>
+                <span className="text-xs font-semibold text-gray-300">{activeEditHabits.length}</span>
+              </div>
+              {activeEditHabits.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-surface-200 bg-surface-50 px-3 py-6 text-center text-sm text-gray-400">
+                  No active habits found.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {activeEditHabits.map((habit) => (
+                    <div
+                      key={habit.id}
+                      draggable
+                      onDragStart={() => setDraggedHabitId(habit.id)}
+                      onDragEnd={() => setDraggedHabitId(null)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => reorderEditHabits(habit.id)}
+                      className={`grid grid-cols-[36px_24px_minmax(0,1fr)] gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 sm:grid-cols-[36px_24px_minmax(0,1fr)_auto_auto] ${
+                        draggedHabitId === habit.id ? 'opacity-50' : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className="flex h-9 w-9 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 active:cursor-grabbing"
+                        title="Drag to reorder"
+                      >
+                        ☰
+                      </button>
+                      <span className="flex h-9 items-center justify-center text-base">{habit.icon}</span>
+                      <input
+                        value={habit.name}
+                        onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
+                        onBlur={() => saveHabitName(habit)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                        className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-brand-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveToggle(habit)}
+                        disabled={editSaving}
+                        className="rounded-lg bg-surface-100 px-3 py-2 text-xs font-semibold text-gray-500 hover:bg-surface-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Archive
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(habit)}
+                        disabled={editSaving}
+                        className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
                 <button
                   type="button"
-                  className="flex h-9 w-9 shrink-0 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 active:cursor-grabbing"
-                  title="Drag to reorder"
+                  onClick={() => setShowArchived((value) => !value)}
+                  className="flex w-full items-center justify-between rounded-xl bg-surface-50 px-3 py-2 text-left"
                 >
-                  ☰
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                    Archived
+                  </span>
+                  <span className="text-xs font-semibold text-gray-400">
+                    {archivedEditHabits.length} {showArchived ? 'Hide' : 'Show'}
+                  </span>
                 </button>
-                <span className="shrink-0 text-base">{habit.icon}</span>
-                <input
-                  value={habit.name}
-                  onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
-                  onBlur={() => saveHabitName(habit)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                  }}
-                  className="min-w-0 flex-1 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-brand-200"
-                />
-              </div>
-            ))}
-          </div>
 
-          <form onSubmit={handleAddHabit} className="mt-3 flex gap-2">
-            <input
-              value={newHabitName}
-              onChange={(event) => setNewHabitName(event.target.value)}
-              placeholder="New daily habit"
-              className="min-w-0 flex-1 rounded-xl border border-surface-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none placeholder:text-gray-300 focus:ring-2 focus:ring-brand-200"
-            />
-            <button
-              type="submit"
-              disabled={!newHabitName.trim() || editSaving}
-              className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Add
-            </button>
-          </form>
+                {showArchived && (
+                  <div className="mt-2 space-y-2">
+                    {archivedEditHabits.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-surface-200 bg-surface-50 px-3 py-5 text-center text-sm text-gray-400">
+                        No archived habits found.
+                      </div>
+                    ) : (
+                      archivedEditHabits.map((habit) => (
+                        <div
+                          key={habit.id}
+                          className="grid grid-cols-[24px_minmax(0,1fr)] gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 opacity-80 sm:grid-cols-[24px_minmax(0,1fr)_auto_auto]"
+                        >
+                          <span className="flex h-9 items-center justify-center text-base">{habit.icon}</span>
+                          <input
+                            value={habit.name}
+                            onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
+                            onBlur={() => saveHabitName(habit)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') event.currentTarget.blur();
+                            }}
+                            className="min-w-0 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-400 line-through outline-none focus:ring-2 focus:ring-brand-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleArchiveToggle(habit)}
+                            disabled={editSaving}
+                            className="rounded-lg bg-accent-green/10 px-3 py-2 text-xs font-semibold text-accent-green hover:bg-accent-green/15 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Restore
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(habit)}
+                            disabled={editSaving}
+                            className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/30 px-4 py-6 backdrop-blur-sm sm:items-center"
+          onClick={() => {
+            if (!editSaving) setDeleteTarget(null);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4">
+              <h2 className="text-base font-bold text-gray-800">Delete habit?</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                This will permanently delete "{deleteTarget.name}" and remove its history.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={editSaving}
+                className="rounded-xl bg-surface-100 px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-surface-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteHabit(deleteTarget)}
+                disabled={editSaving}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {editSaving ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

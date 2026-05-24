@@ -1,5 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { getEntries, getHabits, toggleEntry } from '../api';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createHabit, getEntries, getHabits, toggleEntry, updateHabit, updateHabitOrder } from '../api';
 
 const WEEKDAY_NARROW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_NAMES = [
@@ -18,7 +18,18 @@ const DOT_COLORS = [
 ];
 
 function toDateKey(date) {
-  return date.toISOString().split('T')[0];
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeEntryDate(date) {
+  if (!date) return '';
+  if (date instanceof Date) return toDateKey(date);
+  const value = String(date);
+  if (!value.includes('T')) return value.slice(0, 10);
+  return toDateKey(new Date(value));
 }
 
 function addDays(date, days) {
@@ -51,12 +62,20 @@ function isWeekBreak(day, endDate) {
 }
 
 export default function HabitTable() {
+  const tableScrollRef = useRef(null);
+  const autoScrolledPeriodRef = useRef('');
+  const scrollMemoryRef = useRef({});
   const [mode, setMode] = useState('week');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [habits, setHabits] = useState([]);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [editHabits, setEditHabits] = useState([]);
+  const [draggedHabitId, setDraggedHabitId] = useState(null);
+  const [newHabitName, setNewHabitName] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   const days = useMemo(
     () => (mode === 'week' ? buildWeekDays(periodOffset) : buildMonthDays(periodOffset)),
@@ -65,17 +84,23 @@ export default function HabitTable() {
 
   const startDate = toDateKey(days[0]);
   const endDate = toDateKey(days[days.length - 1]);
+  const periodKey = `${mode}:${startDate}:${endDate}`;
   const todayKey = toDateKey(new Date());
+  const yesterdayKey = toDateKey(addDays(new Date(), -1));
 
   const dailyHabits = useMemo(
     () => habits.filter((habit) => habit.frequency === 'daily'),
     [habits]
   );
 
+  useEffect(() => {
+    if (editMode) setEditHabits(dailyHabits);
+  }, [dailyHabits, editMode]);
+
   const completedKeys = useMemo(() => {
     const keys = new Set();
     entries.forEach((entry) => {
-      const date = entry.date?.split?.('T')[0] || entry.date;
+      const date = normalizeEntryDate(entry.date);
       keys.add(`${entry.habit_id}-${date}`);
     });
     return keys;
@@ -98,9 +123,9 @@ export default function HabitTable() {
   }, [days, endDate, mode, startDate]);
 
   const gridTemplateColumns = useMemo(() => {
-    const habitColumn = mode === 'month' ? 'minmax(150px,4.8fr)' : 'minmax(150px,3.5fr)';
-    const dayColumn = mode === 'month' ? 'minmax(0,1fr)' : 'minmax(28px,1fr)';
-    const resultColumn = mode === 'month' ? 'minmax(68px,1.8fr)' : 'minmax(68px,1.2fr)';
+    const habitColumn = mode === 'month' ? '190px' : 'minmax(150px,3.5fr)';
+    const dayColumn = mode === 'month' ? '42px' : 'minmax(28px,1fr)';
+    const resultColumn = mode === 'month' ? '96px' : 'minmax(68px,1.2fr)';
     const dayColumns = days
       .flatMap((day) => isWeekBreak(day, endDate) ? [dayColumn, '8px'] : [dayColumn])
       .join(' ');
@@ -128,6 +153,54 @@ export default function HabitTable() {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (loading || mode !== 'month' || dailyHabits.length === 0) return;
+
+    const frameId = requestAnimationFrame(() => {
+      const scroller = tableScrollRef.current;
+      if (!scroller) return;
+
+      const savedScrollLeft = scrollMemoryRef.current[periodKey];
+      if (typeof savedScrollLeft === 'number') {
+        scroller.scrollLeft = savedScrollLeft;
+        return;
+      }
+
+      if (autoScrolledPeriodRef.current === periodKey) return;
+
+      const visibleToday = days.find((day) => toDateKey(day) === todayKey);
+      const weekEnd = addDays(startOfWeek(new Date()), 6);
+      const weekEndKey = toDateKey(weekEnd);
+      const visibleWeekEnd = days.find((day) => toDateKey(day) === weekEndKey);
+      const targetKey = visibleWeekEnd ? weekEndKey : visibleToday ? todayKey : toDateKey(days[days.length - 1]);
+      const targetColumn = scroller.querySelector(`[data-date-column="${targetKey}"]`);
+      const resultColumn = scroller.querySelector('[data-result-column="true"]');
+      const resultWidth = resultColumn?.getBoundingClientRect().width || 96;
+
+      if (targetColumn) {
+        const nextScrollLeft = Math.max(
+          0,
+          targetColumn.offsetLeft - scroller.clientWidth + targetColumn.offsetWidth + resultWidth + 16
+        );
+        scroller.scrollLeft = nextScrollLeft;
+        scrollMemoryRef.current[periodKey] = nextScrollLeft;
+      } else {
+        scroller.scrollLeft = scroller.scrollWidth;
+        scrollMemoryRef.current[periodKey] = scroller.scrollLeft;
+      }
+
+      autoScrolledPeriodRef.current = periodKey;
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [dailyHabits.length, days, loading, mode, periodKey, todayKey]);
+
+  const rememberTableScroll = () => {
+    if (mode === 'month' && tableScrollRef.current) {
+      scrollMemoryRef.current[periodKey] = tableScrollRef.current.scrollLeft;
+    }
+  };
+
   const handleModeChange = (nextMode) => {
     setMode(nextMode);
     setPeriodOffset(0);
@@ -135,6 +208,7 @@ export default function HabitTable() {
 
   const handleToggle = async (habitId, date) => {
     const key = `${habitId}-${date}`;
+    rememberTableScroll();
     setSavingKey(key);
     try {
       await toggleEntry(habitId, date);
@@ -143,6 +217,85 @@ export default function HabitTable() {
       console.error(err);
     } finally {
       setSavingKey('');
+    }
+  };
+
+  const openEditView = () => {
+    setEditHabits(dailyHabits);
+    setNewHabitName('');
+    setEditMode(true);
+  };
+
+  const closeEditView = () => {
+    setDraggedHabitId(null);
+    setNewHabitName('');
+    setEditMode(false);
+  };
+
+  const handleEditNameChange = (habitId, name) => {
+    setEditHabits((current) =>
+      current.map((habit) => habit.id === habitId ? { ...habit, name } : habit)
+    );
+  };
+
+  const saveHabitName = async (habit) => {
+    const nextName = habit.name.trim();
+    const original = dailyHabits.find((item) => item.id === habit.id);
+    if (!nextName || !original || nextName === original.name) return;
+
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await updateHabit(habit.id, { name: nextName });
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const reorderEditHabits = async (targetHabitId) => {
+    if (!draggedHabitId || draggedHabitId === targetHabitId) return;
+
+    const fromIndex = editHabits.findIndex((habit) => habit.id === draggedHabitId);
+    const toIndex = editHabits.findIndex((habit) => habit.id === targetHabitId);
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const nextHabits = [...editHabits];
+    const [movedHabit] = nextHabits.splice(fromIndex, 1);
+    nextHabits.splice(toIndex, 0, movedHabit);
+    setEditHabits(nextHabits);
+    setDraggedHabitId(null);
+
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await updateHabitOrder(nextHabits.map((habit) => habit.id));
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setEditHabits(dailyHabits);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleAddHabit = async (event) => {
+    event.preventDefault();
+    const name = newHabitName.trim();
+    if (!name) return;
+
+    rememberTableScroll();
+    setEditSaving(true);
+    try {
+      await createHabit({ name, frequency: 'daily', icon: '✅' });
+      setNewHabitName('');
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -161,8 +314,19 @@ export default function HabitTable() {
           <h1 className="text-2xl font-bold text-gray-800">Habit Table</h1>
           <p className="mt-1 text-xs text-gray-400">{title}</p>
         </div>
-        <div className="flex shrink-0 rounded-xl bg-surface-100 p-1">
-          {['week', 'month'].map((option) => (
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={editMode ? closeEditView : openEditView}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold shadow-sm ${
+              editMode
+                ? 'bg-gray-800 text-white hover:bg-gray-700'
+                : 'border border-surface-200 bg-white text-gray-500 hover:bg-surface-100'
+            }`}
+          >
+            {editMode ? 'Done' : 'Edit'}
+          </button>
+          <div className="flex rounded-xl bg-surface-100 p-1">
+            {['week', 'month'].map((option) => (
             <button
               key={option}
               onClick={() => handleModeChange(option)}
@@ -172,9 +336,72 @@ export default function HabitTable() {
             >
               {option}
             </button>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
+
+      {editMode && (
+        <div className="mb-5 rounded-2xl border border-surface-200/70 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-gray-800">Edit Table Habits</h2>
+              <p className="mt-0.5 text-xs text-gray-400">Drag rows to reorder. Rename titles inline.</p>
+            </div>
+            {editSaving && <span className="text-xs font-semibold text-gray-400">Saving...</span>}
+          </div>
+
+          <div className="space-y-2">
+            {editHabits.map((habit) => (
+              <div
+                key={habit.id}
+                draggable
+                onDragStart={() => setDraggedHabitId(habit.id)}
+                onDragEnd={() => setDraggedHabitId(null)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => reorderEditHabits(habit.id)}
+                className={`flex items-center gap-2 rounded-xl border border-surface-200 bg-surface-50 px-3 py-2 ${
+                  draggedHabitId === habit.id ? 'opacity-50' : ''
+                }`}
+              >
+                <button
+                  type="button"
+                  className="flex h-9 w-9 shrink-0 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 active:cursor-grabbing"
+                  title="Drag to reorder"
+                >
+                  ☰
+                </button>
+                <span className="shrink-0 text-base">{habit.icon}</span>
+                <input
+                  value={habit.name}
+                  onChange={(event) => handleEditNameChange(habit.id, event.target.value)}
+                  onBlur={() => saveHabitName(habit)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-brand-200"
+                />
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={handleAddHabit} className="mt-3 flex gap-2">
+            <input
+              value={newHabitName}
+              onChange={(event) => setNewHabitName(event.target.value)}
+              placeholder="New daily habit"
+              className="min-w-0 flex-1 rounded-xl border border-surface-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none placeholder:text-gray-300 focus:ring-2 focus:ring-brand-200"
+            />
+            <button
+              type="submit"
+              disabled={!newHabitName.trim() || editSaving}
+              className="rounded-xl bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Add
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="mb-5 flex items-center justify-between">
         <button
@@ -186,8 +413,9 @@ export default function HabitTable() {
         <button
           onClick={() => setPeriodOffset(0)}
           className="rounded-xl border border-surface-200 bg-white px-4 py-2 text-xs font-semibold text-gray-500 shadow-sm"
+          title={`Go to current ${mode}`}
         >
-          Current {mode}
+          {title}
         </button>
         <button
           onClick={() => setPeriodOffset((offset) => offset + 1)}
@@ -205,15 +433,19 @@ export default function HabitTable() {
           <p className="mt-1 text-sm text-gray-400">Daily habits will appear as rows here.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto sm:overflow-visible">
-          <div className={`rounded-2xl border border-surface-200/70 bg-[#fffdf7] p-3 shadow-sm sm:min-w-0 sm:p-4 ${
-            mode === 'month' ? 'min-w-[760px]' : 'min-w-[520px]'
-          }`}>
+        <div className="rounded-2xl border border-surface-200/70 bg-[#fffdf7] p-3 shadow-sm sm:p-4">
+          <div className="rounded-xl bg-[#ece7dd] p-[3px] sm:p-1">
             <div
-              className="grid items-stretch gap-[3px] rounded-xl bg-[#ece7dd] p-[3px] sm:gap-1 sm:p-1"
+              ref={tableScrollRef}
+              onScroll={rememberTableScroll}
+              className="scrollbar-none overflow-x-auto rounded-lg"
+            >
+              <div className={mode === 'month' ? 'w-max' : 'min-w-[520px] w-full'}>
+            <div
+              className="isolate grid items-stretch gap-[3px] sm:gap-1"
               style={{ gridTemplateColumns }}
             >
-              <div className="flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
+              <div className="sticky left-0 z-40 flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
                 Day
               </div>
 
@@ -223,7 +455,8 @@ export default function HabitTable() {
                 return (
                   <Fragment key={dateKey}>
                     <div
-                      className={`flex aspect-square min-h-5 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] text-[8px] font-bold leading-none text-gray-700 sm:min-h-6 ${
+                      data-date-column={dateKey}
+                      className={`relative z-0 flex min-h-5 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] text-[8px] font-bold leading-none text-gray-700 sm:min-h-6 ${
                         isToday ? 'border-brand-500 bg-brand-50 text-brand-700' : ''
                       }`}
                       title={dateKey}
@@ -240,34 +473,13 @@ export default function HabitTable() {
                 );
               })}
 
-              <div className="flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
+              <div data-result-column="true" className="sticky right-0 z-40 flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
                 Result
               </div>
 
-              <div className="flex min-h-8 items-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-9">
-                Habit
-              </div>
-
-              {days.map((day) => {
-                const dateKey = toDateKey(day);
-                return (
-                  <Fragment key={`${dateKey}-blank`}>
-                    <div
-                      className="aspect-square min-h-5 min-w-0 rounded-md border border-[#ded8cf] bg-[#fffaf0] sm:min-h-6"
-                      aria-hidden="true"
-                    />
-                    {isWeekBreak(day, endDate) && (
-                      <div key={`${dateKey}-blank-week-gap`} className="rounded-sm bg-[#ece7dd]" aria-hidden="true" />
-                    )}
-                  </Fragment>
-                );
-              })}
-
-              <div className="min-h-8 rounded-md border border-[#cfc8bc] bg-[#fffaf0] sm:min-h-9" aria-hidden="true" />
-
               {dailyHabits.map((habit, habitIndex) => (
                 <div key={habit.id} className="contents">
-                  <div className="flex min-h-8 min-w-0 items-center rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-2 sm:min-h-9">
+                  <div className="sticky left-0 z-30 flex min-h-8 min-w-0 items-center rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-2 sm:min-h-9">
                     <span className="mr-1.5 text-sm">{habit.icon}</span>
                     <span className="truncate text-[11px] font-semibold text-gray-700 sm:text-xs">
                       {habit.name}
@@ -279,16 +491,23 @@ export default function HabitTable() {
                     const cellKey = `${habit.id}-${dateKey}`;
                     const completed = completedKeys.has(cellKey);
                     const isToday = dateKey === todayKey;
+                    const canToggle = dateKey === todayKey || dateKey === yesterdayKey;
                     const saving = savingKey === cellKey;
                     return (
                       <Fragment key={cellKey}>
                         <button
                           onClick={() => handleToggle(habit.id, dateKey)}
-                          disabled={saving}
-                          className={`relative aspect-square min-h-5 min-w-0 overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] transition-colors hover:bg-brand-50 focus:bg-brand-100 focus:outline-none sm:min-h-6 ${
+                          disabled={saving || !canToggle}
+                          className={`relative z-0 min-h-5 min-w-0 overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] transition-colors hover:bg-brand-50 focus:bg-brand-100 focus:outline-none sm:min-h-6 ${
                             isToday ? 'border-brand-400 bg-brand-50/60' : ''
-                          } ${saving ? 'opacity-50' : ''}`}
-                          title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
+                          } ${canToggle ? '' : 'cursor-not-allowed bg-[#f7f4ee] opacity-60 hover:bg-[#f7f4ee]'} ${
+                            saving ? 'opacity-50' : ''
+                          }`}
+                          title={`${habit.name} on ${dateKey}: ${
+                            canToggle
+                              ? completed ? 'complete' : 'not complete'
+                              : 'only today and yesterday can be changed'
+                          }`}
                           aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
                         >
                           {completed && (
@@ -304,11 +523,13 @@ export default function HabitTable() {
                     );
                   })}
 
-                  <div className="flex min-h-8 min-w-0 items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-1 text-[11px] font-bold text-gray-700 sm:min-h-9 sm:text-xs">
+                  <div className="sticky right-0 z-30 flex min-h-8 min-w-0 items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-1 text-[11px] font-bold text-gray-700 sm:min-h-9 sm:text-xs">
                     {habitTotals[habit.id] || 0}/{days.length}
                   </div>
                 </div>
               ))}
+            </div>
+              </div>
             </div>
           </div>
         </div>

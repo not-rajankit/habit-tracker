@@ -3,13 +3,20 @@ import pool from '../db.js';
 
 const router = Router();
 
+function toLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // POST /api/entries/toggle — toggle habit completion for a date
 router.post('/toggle', async (req, res) => {
   try {
     const { habit_id, date } = req.body;
     if (!habit_id) return res.status(400).json({ error: 'habit_id is required' });
 
-    const entryDate = date || new Date().toISOString().split('T')[0];
+    const entryDate = date || toLocalDateKey();
 
     // Check if entry exists
     const existing = await pool.query(
@@ -39,7 +46,7 @@ router.post('/toggle', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { habit_id, start_date, end_date } = req.query;
-    let query = `SELECT * FROM habit_entries WHERE 1=1`;
+    let query = `SELECT id, habit_id, to_char(date, 'YYYY-MM-DD') AS date, created_at FROM habit_entries WHERE 1=1`;
     const params = [];
 
     if (habit_id) {

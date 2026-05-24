@@ -14,7 +14,7 @@ router.get('/', async (req, res) => {
       FROM habits h
       LEFT JOIN habit_entries he ON he.habit_id = h.id AND he.date = $1
       WHERE h.archived = false
-      ORDER BY h.created_at ASC
+      ORDER BY h.sort_order ASC NULLS LAST, h.created_at ASC, h.id ASC
     `, [today]);
 
     // Calculate streaks for each habit
@@ -41,14 +41,45 @@ router.post('/', async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name is required' });
 
     const result = await pool.query(
-      `INSERT INTO habits (name, frequency, icon, category)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
+      `WITH next_order AS (
+         SELECT COALESCE(MAX(sort_order), 0) + 1 AS value FROM habits
+       )
+       INSERT INTO habits (name, frequency, icon, category, sort_order)
+       SELECT $1, $2, $3, $4, value FROM next_order
+       RETURNING *`,
       [name, frequency, icon, category || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating habit:', err);
     res.status(500).json({ error: 'Failed to create habit' });
+  }
+});
+
+// PUT /api/habits/order — update table order
+router.put('/order', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { habit_ids } = req.body;
+    if (!Array.isArray(habit_ids)) {
+      return res.status(400).json({ error: 'habit_ids must be an array' });
+    }
+
+    await client.query('BEGIN');
+    for (let index = 0; index < habit_ids.length; index++) {
+      await client.query(
+        `UPDATE habits SET sort_order = $1, updated_at = NOW() WHERE id = $2`,
+        [index + 1, habit_ids[index]]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ habit_ids });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error updating habit order:', err);
+    res.status(500).json({ error: 'Failed to update habit order' });
+  } finally {
+    client.release();
   }
 });
 

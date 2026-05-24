@@ -56,3 +56,12 @@ button, a, input {
 .animate-slide-up {
   animation: slideUp 0.3s ease-out forwards;
 }
+
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}

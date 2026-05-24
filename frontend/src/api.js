@@ -16,6 +16,7 @@ async function request(path, options = {}) {
 export const getHabits = () => request('/habits');
 export const createHabit = (data) => request('/habits', { method: 'POST', body: JSON.stringify(data) });
 export const updateHabit = (id, data) => request(`/habits/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const updateHabitOrder = (habit_ids) => request('/habits/order', { method: 'PUT', body: JSON.stringify({ habit_ids }) });
 export const deleteHabit = (id) => request(`/habits/${id}`, { method: 'DELETE' });
 
 // Entries

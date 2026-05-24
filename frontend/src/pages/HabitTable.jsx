@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { getEntries, getHabits, toggleEntry } from '../api';
 
 const WEEKDAY_NARROW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -44,6 +44,10 @@ function buildMonthDays(offset) {
   return Array.from({ length: daysInMonth }, (_, index) =>
     new Date(monthDate.getFullYear(), monthDate.getMonth(), index + 1)
   );
+}
+
+function isWeekBreak(day, endDate) {
+  return day.getDay() === 0 && toDateKey(day) !== endDate;
 }
 
 export default function HabitTable() {
@@ -92,6 +96,17 @@ export default function HabitTable() {
     const monthDate = days[0];
     return `${MONTH_NAMES[monthDate.getMonth()]} ${monthDate.getFullYear()}`;
   }, [days, endDate, mode, startDate]);
+
+  const gridTemplateColumns = useMemo(() => {
+    const habitColumn = mode === 'month' ? 'minmax(150px,4.8fr)' : 'minmax(150px,3.5fr)';
+    const dayColumn = mode === 'month' ? 'minmax(0,1fr)' : 'minmax(28px,1fr)';
+    const resultColumn = mode === 'month' ? 'minmax(68px,1.8fr)' : 'minmax(68px,1.2fr)';
+    const dayColumns = days
+      .flatMap((day) => isWeekBreak(day, endDate) ? [dayColumn, '8px'] : [dayColumn])
+      .join(' ');
+
+    return `${habitColumn} ${dayColumns} ${resultColumn}`;
+  }, [days, endDate, mode]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -196,11 +211,7 @@ export default function HabitTable() {
           }`}>
             <div
               className="grid items-stretch gap-[3px] rounded-xl bg-[#ece7dd] p-[3px] sm:gap-1 sm:p-1"
-              style={{
-                gridTemplateColumns: mode === 'month'
-                  ? `minmax(140px, 4.5fr) repeat(${days.length}, minmax(0, 1fr)) minmax(58px, 1.6fr)`
-                  : `minmax(140px, 3.5fr) repeat(${days.length}, minmax(28px, 1fr)) minmax(58px, 1.2fr)`,
-              }}
+              style={{ gridTemplateColumns }}
             >
               <div className="flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
                 Day
@@ -209,20 +220,23 @@ export default function HabitTable() {
               {days.map((day) => {
                 const dateKey = toDateKey(day);
                 const isToday = dateKey === todayKey;
-                const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                 return (
-                  <div
-                    key={dateKey}
-                    className={`flex aspect-square min-h-5 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] text-[8px] font-bold leading-none text-gray-700 sm:min-h-6 ${
-                      isToday ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-300' : ''
-                    } ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''}`}
-                    title={dateKey}
-                  >
-                    <span className="max-w-full truncate">{day.getDate()}</span>
-                    <span className="mt-0.5 max-w-full truncate text-[7px] font-semibold text-gray-400">
-                      {WEEKDAY_NARROW[day.getDay()]}
-                    </span>
-                  </div>
+                  <Fragment key={dateKey}>
+                    <div
+                      className={`flex aspect-square min-h-5 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] text-[8px] font-bold leading-none text-gray-700 sm:min-h-6 ${
+                        isToday ? 'border-brand-500 bg-brand-50 text-brand-700' : ''
+                      }`}
+                      title={dateKey}
+                    >
+                      <span className="max-w-full truncate">{day.getDate()}</span>
+                      <span className="mt-0.5 max-w-full truncate text-[7px] font-semibold text-gray-400">
+                        {WEEKDAY_NARROW[day.getDay()]}
+                      </span>
+                    </div>
+                    {isWeekBreak(day, endDate) && (
+                      <div key={`${dateKey}-week-gap`} className="rounded-sm bg-[#ece7dd]" aria-hidden="true" />
+                    )}
+                  </Fragment>
                 );
               })}
 
@@ -236,13 +250,16 @@ export default function HabitTable() {
 
               {days.map((day) => {
                 const dateKey = toDateKey(day);
-                const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                 return (
-                  <div
-                    key={`${dateKey}-blank`}
-                    className={`aspect-square min-h-5 min-w-0 rounded-md border border-[#ded8cf] bg-[#fffaf0] sm:min-h-6 ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''}`}
-                    aria-hidden="true"
-                  />
+                  <Fragment key={`${dateKey}-blank`}>
+                    <div
+                      className="aspect-square min-h-5 min-w-0 rounded-md border border-[#ded8cf] bg-[#fffaf0] sm:min-h-6"
+                      aria-hidden="true"
+                    />
+                    {isWeekBreak(day, endDate) && (
+                      <div key={`${dateKey}-blank-week-gap`} className="rounded-sm bg-[#ece7dd]" aria-hidden="true" />
+                    )}
+                  </Fragment>
                 );
               })}
 
@@ -262,25 +279,28 @@ export default function HabitTable() {
                     const cellKey = `${habit.id}-${dateKey}`;
                     const completed = completedKeys.has(cellKey);
                     const isToday = dateKey === todayKey;
-                    const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                     const saving = savingKey === cellKey;
                     return (
-                      <button
-                        key={cellKey}
-                        onClick={() => handleToggle(habit.id, dateKey)}
-                        disabled={saving}
-                        className={`relative aspect-square min-h-5 min-w-0 rounded-md border border-[#cfc8bc] bg-[#fffdf7] transition-colors hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-300 sm:min-h-6 ${
-                          isToday ? 'border-brand-400 bg-brand-50/60' : ''
-                        } ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''} ${saving ? 'opacity-50' : ''}`}
-                        title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
-                        aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
-                      >
-                        {completed && (
-                          <span
-                            className={`absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full sm:h-2.5 sm:w-2.5 ${DOT_COLORS[habitIndex % DOT_COLORS.length]}`}
-                          />
+                      <Fragment key={cellKey}>
+                        <button
+                          onClick={() => handleToggle(habit.id, dateKey)}
+                          disabled={saving}
+                          className={`relative aspect-square min-h-5 min-w-0 overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] transition-colors hover:bg-brand-50 focus:bg-brand-100 focus:outline-none sm:min-h-6 ${
+                            isToday ? 'border-brand-400 bg-brand-50/60' : ''
+                          } ${saving ? 'opacity-50' : ''}`}
+                          title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
+                          aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
+                        >
+                          {completed && (
+                            <span
+                              className={`absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full sm:h-2.5 sm:w-2.5 ${DOT_COLORS[habitIndex % DOT_COLORS.length]}`}
+                            />
+                          )}
+                        </button>
+                        {isWeekBreak(day, endDate) && (
+                          <div key={`${cellKey}-week-gap`} className="rounded-sm bg-[#ece7dd]" aria-hidden="true" />
                         )}
-                      </button>
+                      </Fragment>
                     );
                   })}
 

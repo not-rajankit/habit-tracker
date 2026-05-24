@@ -2,9 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getEntries, getHabits, toggleEntry } from '../api';
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAY_NARROW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
+];
+const DOT_COLORS = [
+  'bg-rose-500',
+  'bg-pink-400',
+  'bg-orange-400',
+  'bg-violet-500',
+  'bg-purple-400',
+  'bg-sky-400',
+  'bg-emerald-400',
+  'bg-amber-400',
 ];
 
 function toDateKey(date) {
@@ -67,22 +78,6 @@ export default function HabitTable() {
     return keys;
   }, [entries]);
 
-  const dayStats = useMemo(() => {
-    const stats = {};
-    days.forEach((day) => {
-      const dateKey = toDateKey(day);
-      const completed = dailyHabits.filter((habit) =>
-        completedKeys.has(`${habit.id}-${dateKey}`)
-      ).length;
-      stats[dateKey] = {
-        completed,
-        total: dailyHabits.length,
-        ratio: dailyHabits.length > 0 ? completed / dailyHabits.length : 0,
-      };
-    });
-    return stats;
-  }, [completedKeys, dailyHabits, days]);
-
   const title = useMemo(() => {
     if (mode === 'week') return `${startDate} to ${endDate}`;
     const monthDate = days[0];
@@ -112,13 +107,6 @@ export default function HabitTable() {
   const handleModeChange = (nextMode) => {
     setMode(nextMode);
     setPeriodOffset(0);
-  };
-
-  const getHeaderHeatClass = (ratio) => {
-    if (ratio >= 0.8) return 'bg-green-100 text-green-800';
-    if (ratio >= 0.5) return 'bg-green-50 text-green-700';
-    if (ratio > 0) return 'bg-emerald-50 text-emerald-600';
-    return 'bg-surface-100 text-gray-400';
   };
 
   const handleToggle = async (habitId, date) => {
@@ -194,53 +182,76 @@ export default function HabitTable() {
         </div>
       ) : (
         <div className="overflow-x-auto sm:overflow-visible">
-          <div className="min-w-[640px] rounded-2xl border border-surface-200/70 bg-white p-3 shadow-sm sm:min-w-0 sm:p-4">
+          <div className={`rounded-2xl border border-surface-200/70 bg-[#fffdf7] p-4 shadow-sm sm:min-w-0 sm:p-6 ${
+            mode === 'month' ? 'min-w-[860px]' : 'min-w-[540px]'
+          }`}>
+            <div className="mb-4 flex items-end justify-between gap-4 border-b-2 border-gray-800 pb-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-gray-400">Habit Tracker</p>
+                <h2 className="text-2xl font-black text-gray-900 sm:text-3xl">{title}</h2>
+              </div>
+              <p className="hidden text-right text-xs font-semibold uppercase tracking-[0.2em] text-gray-400 sm:block">
+                one day at a time
+              </p>
+            </div>
             <div
-              className="grid items-center gap-x-1 gap-y-2 sm:gap-x-1.5"
+              className="grid items-stretch gap-0"
               style={{
                 gridTemplateColumns: mode === 'month'
-                  ? `minmax(88px, 1.7fr) repeat(${days.length}, minmax(0, 1fr))`
-                  : `minmax(116px, 1.7fr) repeat(${days.length}, minmax(0, 1fr))`,
+                  ? `minmax(128px, 2.4fr) repeat(${days.length}, minmax(0, 1fr))`
+                  : `minmax(150px, 2.2fr) repeat(${days.length}, minmax(28px, 1fr))`,
               }}
             >
-              <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+              <div className="row-span-2 flex items-center border-2 border-gray-800 bg-[#fffaf0] px-2 text-[11px] font-bold uppercase tracking-wider text-gray-700">
                 Habit
               </div>
 
               {days.map((day) => {
                 const dateKey = toDateKey(day);
                 const isToday = dateKey === todayKey;
-                const isWeekEnd = day.getDay() === 0 && dateKey !== endDate;
-                const stats = dayStats[dateKey];
+                const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1.5 sm:mr-2' : '';
                 return (
                   <div
-                    key={dateKey}
-                    className={`rounded-lg py-1 text-center ${getHeaderHeatClass(stats?.ratio || 0)} ${
-                      isToday ? 'ring-2 ring-brand-400 ring-offset-1' : ''
-                    } ${isWeekEnd ? 'mr-2 sm:mr-3' : ''}`}
-                    title={`${dateKey}: ${stats?.completed || 0}/${stats?.total || 0} complete`}
+                    key={`${dateKey}-weekday`}
+                    className={`flex h-6 items-center justify-center border-y-2 border-r-2 border-gray-800 bg-[#fffaf0] text-[10px] font-black text-gray-800 ${weekGap} ${
+                      isToday ? 'bg-brand-50 text-brand-700' : ''
+                    }`}
+                    title={dateKey}
                   >
-                    <span className="block text-[9px] font-bold sm:text-[10px]">
-                      {WEEKDAY_SHORT[day.getDay()]}
-                    </span>
-                    <span className="block text-[11px] font-bold leading-3 sm:text-xs">
-                      {day.getDate()}
-                    </span>
+                    <span className="sm:hidden">{WEEKDAY_NARROW[day.getDay()]}</span>
+                    <span className="hidden sm:inline">{WEEKDAY_SHORT[day.getDay()].slice(0, 1)}</span>
                   </div>
                 );
               })}
 
-              {dailyHabits.map((habit) => (
+              {days.map((day) => {
+                const dateKey = toDateKey(day);
+                const isToday = dateKey === todayKey;
+                const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1.5 sm:mr-2' : '';
+                return (
+                  <div
+                    key={`${dateKey}-date`}
+                    className={`flex h-6 items-center justify-center border-b-2 border-r-2 border-gray-800 bg-[#fffaf0] text-[10px] font-black text-gray-800 ${weekGap} ${
+                      isToday ? 'bg-brand-50 text-brand-700' : ''
+                    }`}
+                    title={dateKey}
+                  >
+                    {day.getDate()}
+                  </div>
+                );
+              })}
+
+              {dailyHabits.map((habit, habitIndex) => (
                 <div key={habit.id} className="contents">
-                  <div className="min-w-0 rounded-lg bg-surface-50 px-2 py-2">
+                  <div className="min-w-0 border-x-2 border-b-2 border-gray-800 bg-[#fffdf7] px-2 py-1.5">
                     <div className="flex min-w-0 items-center gap-1.5">
                       <span className="text-sm">{habit.icon}</span>
-                      <span className="truncate text-xs font-semibold text-gray-700 sm:text-sm">
+                      <span className="truncate text-xs font-bold text-gray-800 sm:text-[13px]">
                         {habit.name}
                       </span>
                     </div>
                     {habit.category && (
-                      <span className="block truncate text-[9px] text-gray-400">{habit.category}</span>
+                      <span className="block truncate text-[9px] font-medium text-gray-400">{habit.category}</span>
                     )}
                   </div>
 
@@ -249,23 +260,25 @@ export default function HabitTable() {
                     const cellKey = `${habit.id}-${dateKey}`;
                     const completed = completedKeys.has(cellKey);
                     const isToday = dateKey === todayKey;
-                    const isWeekEnd = day.getDay() === 0 && dateKey !== endDate;
+                    const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1.5 sm:mr-2' : '';
                     const saving = savingKey === cellKey;
                     return (
                       <button
                         key={cellKey}
                         onClick={() => handleToggle(habit.id, dateKey)}
                         disabled={saving}
-                        className={`aspect-square min-h-4 rounded-[4px] border transition-all sm:min-h-5 lg:min-h-6 ${
-                          completed
-                            ? 'border-green-400 bg-green-400 hover:bg-green-500'
-                            : 'border-surface-200 bg-surface-100 hover:bg-green-100 hover:border-green-200'
-                        } ${isToday ? 'ring-1 ring-brand-400 ring-offset-1' : ''} ${
-                          isWeekEnd ? 'mr-2 sm:mr-3' : ''
-                        } ${saving ? 'opacity-50' : ''}`}
+                        className={`relative aspect-square min-h-5 border-b-2 border-r-2 border-gray-800 bg-[#fffdf7] transition-all hover:bg-yellow-50 focus:outline-none focus:ring-2 focus:ring-brand-300 ${
+                          isToday ? 'bg-brand-50/70' : ''
+                        } ${weekGap} ${saving ? 'opacity-50' : ''}`}
                         title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
                         aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
-                      />
+                      >
+                        {completed && (
+                          <span
+                            className={`absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-sm sm:h-3 sm:w-3 ${DOT_COLORS[habitIndex % DOT_COLORS.length]}`}
+                          />
+                        )}
+                      </button>
                     );
                   })}
                 </div>

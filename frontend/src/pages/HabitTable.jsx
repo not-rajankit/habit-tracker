@@ -67,6 +67,22 @@ export default function HabitTable() {
     return keys;
   }, [entries]);
 
+  const dayStats = useMemo(() => {
+    const stats = {};
+    days.forEach((day) => {
+      const dateKey = toDateKey(day);
+      const completed = dailyHabits.filter((habit) =>
+        completedKeys.has(`${habit.id}-${dateKey}`)
+      ).length;
+      stats[dateKey] = {
+        completed,
+        total: dailyHabits.length,
+        ratio: dailyHabits.length > 0 ? completed / dailyHabits.length : 0,
+      };
+    });
+    return stats;
+  }, [completedKeys, dailyHabits, days]);
+
   const title = useMemo(() => {
     if (mode === 'week') return `${startDate} to ${endDate}`;
     const monthDate = days[0];
@@ -96,6 +112,13 @@ export default function HabitTable() {
   const handleModeChange = (nextMode) => {
     setMode(nextMode);
     setPeriodOffset(0);
+  };
+
+  const getHeaderHeatClass = (ratio) => {
+    if (ratio >= 0.8) return 'bg-green-100 text-green-800';
+    if (ratio >= 0.5) return 'bg-green-50 text-green-700';
+    if (ratio > 0) return 'bg-emerald-50 text-emerald-600';
+    return 'bg-surface-100 text-gray-400';
   };
 
   const handleToggle = async (habitId, date) => {
@@ -170,78 +193,85 @@ export default function HabitTable() {
           <p className="text-sm text-gray-400 mt-1">Daily habits will appear as rows here.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto bg-white rounded-2xl border border-surface-200/70 shadow-sm">
-          <table className="w-full min-w-max border-collapse">
-            <thead>
-              <tr>
-                <th className="sticky left-0 z-20 bg-white min-w-[150px] px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 border-b border-surface-200">
-                  Habit
-                </th>
-                {days.map((day) => {
-                  const dateKey = toDateKey(day);
-                  const isToday = dateKey === todayKey;
-                  return (
-                    <th
-                      key={dateKey}
-                      className={`min-w-[54px] px-2 py-3 text-center border-b border-l border-surface-100 ${
-                        isToday ? 'bg-brand-50' : 'bg-white'
-                      }`}
-                    >
-                      <span className={`block text-[10px] font-semibold ${isToday ? 'text-brand-600' : 'text-gray-400'}`}>
-                        {WEEKDAY_SHORT[day.getDay()]}
-                      </span>
-                      <span className={`block text-sm font-bold mt-0.5 ${isToday ? 'text-brand-700' : 'text-gray-700'}`}>
-                        {day.getDate()}
-                      </span>
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
+        <div className="overflow-x-auto sm:overflow-visible">
+          <div className="min-w-[640px] rounded-2xl border border-surface-200/70 bg-white p-3 shadow-sm sm:min-w-0 sm:p-4">
+            <div
+              className="grid items-center gap-x-1 gap-y-2 sm:gap-x-1.5"
+              style={{
+                gridTemplateColumns: mode === 'month'
+                  ? `minmax(88px, 1.7fr) repeat(${days.length}, minmax(0, 1fr))`
+                  : `minmax(116px, 1.7fr) repeat(${days.length}, minmax(0, 1fr))`,
+              }}
+            >
+              <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                Habit
+              </div>
+
+              {days.map((day) => {
+                const dateKey = toDateKey(day);
+                const isToday = dateKey === todayKey;
+                const isWeekEnd = day.getDay() === 0 && dateKey !== endDate;
+                const stats = dayStats[dateKey];
+                return (
+                  <div
+                    key={dateKey}
+                    className={`rounded-lg py-1 text-center ${getHeaderHeatClass(stats?.ratio || 0)} ${
+                      isToday ? 'ring-2 ring-brand-400 ring-offset-1' : ''
+                    } ${isWeekEnd ? 'mr-2 sm:mr-3' : ''}`}
+                    title={`${dateKey}: ${stats?.completed || 0}/${stats?.total || 0} complete`}
+                  >
+                    <span className="block text-[9px] font-bold sm:text-[10px]">
+                      {WEEKDAY_SHORT[day.getDay()]}
+                    </span>
+                    <span className="block text-[11px] font-bold leading-3 sm:text-xs">
+                      {day.getDate()}
+                    </span>
+                  </div>
+                );
+              })}
+
               {dailyHabits.map((habit) => (
-                <tr key={habit.id} className="group">
-                  <th className="sticky left-0 z-10 bg-white min-w-[150px] px-3 py-3 text-left border-b border-surface-100 group-last:border-b-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{habit.icon}</span>
-                      <span className="text-sm font-semibold text-gray-700 truncate">{habit.name}</span>
+                <div key={habit.id} className="contents">
+                  <div className="min-w-0 rounded-lg bg-surface-50 px-2 py-2">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="text-sm">{habit.icon}</span>
+                      <span className="truncate text-xs font-semibold text-gray-700 sm:text-sm">
+                        {habit.name}
+                      </span>
                     </div>
                     {habit.category && (
-                      <span className="block text-[10px] text-gray-400 mt-0.5 truncate">{habit.category}</span>
+                      <span className="block truncate text-[9px] text-gray-400">{habit.category}</span>
                     )}
-                  </th>
+                  </div>
+
                   {days.map((day) => {
                     const dateKey = toDateKey(day);
                     const cellKey = `${habit.id}-${dateKey}`;
                     const completed = completedKeys.has(cellKey);
                     const isToday = dateKey === todayKey;
+                    const isWeekEnd = day.getDay() === 0 && dateKey !== endDate;
                     const saving = savingKey === cellKey;
                     return (
-                      <td
+                      <button
                         key={cellKey}
-                        className={`px-2 py-2 text-center border-b border-l border-surface-100 group-last:border-b-0 ${
-                          isToday ? 'bg-brand-50/70' : ''
-                        }`}
-                      >
-                        <button
-                          onClick={() => handleToggle(habit.id, dateKey)}
-                          disabled={saving}
-                          className={`w-9 h-9 rounded-xl inline-flex items-center justify-center text-sm font-bold border ${
-                            completed
-                              ? 'bg-accent-green text-white border-accent-green shadow-sm'
-                              : 'bg-surface-100 text-transparent border-surface-200 hover:bg-surface-200'
-                          } ${saving ? 'opacity-50' : ''}`}
-                          title={`${habit.name} on ${dateKey}`}
-                        >
-                          {completed ? '✓' : ''}
-                        </button>
-                      </td>
+                        onClick={() => handleToggle(habit.id, dateKey)}
+                        disabled={saving}
+                        className={`aspect-square min-h-4 rounded-[4px] border transition-all sm:min-h-5 lg:min-h-6 ${
+                          completed
+                            ? 'border-green-400 bg-green-400 hover:bg-green-500'
+                            : 'border-surface-200 bg-surface-100 hover:bg-green-100 hover:border-green-200'
+                        } ${isToday ? 'ring-1 ring-brand-400 ring-offset-1' : ''} ${
+                          isWeekEnd ? 'mr-2 sm:mr-3' : ''
+                        } ${saving ? 'opacity-50' : ''}`}
+                        title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
+                        aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
+                      />
                     );
                   })}
-                </tr>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
       )}
     </div>

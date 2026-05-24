@@ -1,13 +1,10 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { addDays, daysInMonth, monthDateKey, parseDateKey, startOfWeek, toDateKey } from '../dateUtils.js';
 
 const router = Router();
 
-function toDateKey(date) {
-  return date instanceof Date ? date.toISOString().split('T')[0] : date;
-}
-
-function buildDayDetails(dateStr, habits, entries) {
+function buildDayDetails(dateStr, habits, entries, focusTotals = {}) {
   const completedIds = new Set(
     entries
       .filter(e => toDateKey(e.date) === dateStr)
@@ -27,23 +24,36 @@ function buildDayDetails(dateStr, habits, entries) {
     completed,
     total,
     completion_percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+    focus_seconds: Number(focusTotals[dateStr] || 0),
     completed_habits: completedHabits,
     missed_habits: missedHabits,
   };
 }
 
+async function getFocusTotalsByDate(startDate, endDate) {
+  const result = await pool.query(
+    `SELECT
+       to_char((ended_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS date,
+       COALESCE(SUM(duration_seconds), 0)::int AS total_seconds
+     FROM focus_sessions
+     WHERE (ended_at AT TIME ZONE 'Asia/Kolkata')::date >= $1::date
+       AND (ended_at AT TIME ZONE 'Asia/Kolkata')::date <= $2::date
+     GROUP BY (ended_at AT TIME ZONE 'Asia/Kolkata')::date`,
+    [startDate, endDate]
+  );
+
+  return result.rows.reduce((totals, row) => {
+    totals[row.date] = Number(row.total_seconds);
+    return totals;
+  }, {});
+}
+
 // GET /api/summary/weekly?date=2026-05-24
 router.get('/weekly', async (req, res) => {
   try {
-    const refDate = req.query.date ? new Date(req.query.date) : new Date();
-    const day = refDate.getDay();
-    const monday = new Date(refDate);
-    monday.setDate(refDate.getDate() - (day === 0 ? 6 : day - 1));
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-
-    const startDate = monday.toISOString().split('T')[0];
-    const endDate = sunday.toISOString().split('T')[0];
+    const refDate = toDateKey(req.query.date || new Date());
+    const startDate = startOfWeek(refDate);
+    const endDate = addDays(startDate, 6);
 
     const habitsResult = await pool.query(
       `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
@@ -53,7 +63,7 @@ router.get('/weekly', async (req, res) => {
 
     // Entries this week
     const entriesResult = await pool.query(
-      `SELECT he.habit_id, he.date, h.name, h.icon
+      `SELECT he.habit_id, to_char(he.date, 'YYYY-MM-DD') AS date, h.name, h.icon
        FROM habit_entries he
        JOIN habits h ON h.id = he.habit_id
        WHERE he.date >= $1 AND he.date <= $2 AND h.archived = false`,
@@ -63,6 +73,8 @@ router.get('/weekly', async (req, res) => {
     const totalPossible = totalHabits * 7;
     const totalCompleted = entriesResult.rows.length;
     const completionPct = totalPossible > 0 ? Math.round((totalCompleted / totalPossible) * 100) : 0;
+    const focusTotals = await getFocusTotalsByDate(startDate, endDate);
+    const totalFocusSeconds = Object.values(focusTotals).reduce((sum, value) => sum + value, 0);
 
     // Best and weakest habits
     const habitCounts = {};
@@ -79,10 +91,8 @@ router.get('/weekly', async (req, res) => {
     // Daily breakdown
     const dailyBreakdown = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
-      dailyBreakdown.push(buildDayDetails(dateStr, habits, entriesResult.rows));
+      const dateStr = addDays(startDate, i);
+      dailyBreakdown.push(buildDayDetails(dateStr, habits, entriesResult.rows, focusTotals));
     }
 
     res.json({
@@ -91,6 +101,7 @@ router.get('/weekly', async (req, res) => {
       total_completed: totalCompleted,
       total_possible: totalPossible,
       completion_percentage: completionPct,
+      total_focus_seconds: totalFocusSeconds,
       best_habit: best,
       weakest_habit: weakest,
       daily_breakdown: dailyBreakdown,
@@ -105,12 +116,11 @@ router.get('/weekly', async (req, res) => {
 // GET /api/summary/monthly?date=2026-05-01
 router.get('/monthly', async (req, res) => {
   try {
-    const refDate = req.query.date ? new Date(req.query.date) : new Date();
-    const year = refDate.getFullYear();
-    const month = refDate.getMonth();
-    const startDate = new Date(year, month, 1).toISOString().split('T')[0];
-    const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const refDate = toDateKey(req.query.date || new Date());
+    const { year, month } = parseDateKey(refDate);
+    const startDate = monthDateKey(year, month, 1);
+    const monthDays = daysInMonth(year, month);
+    const endDate = monthDateKey(year, month, monthDays);
 
     const habitsResult = await pool.query(
       `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
@@ -119,29 +129,29 @@ router.get('/monthly', async (req, res) => {
     const totalHabits = habits.length;
 
     const entriesResult = await pool.query(
-      `SELECT he.habit_id, he.date, h.name, h.icon FROM habit_entries he
+      `SELECT he.habit_id, to_char(he.date, 'YYYY-MM-DD') AS date, h.name, h.icon FROM habit_entries he
        JOIN habits h ON h.id = he.habit_id
        WHERE he.date >= $1 AND he.date <= $2 AND h.archived = false`,
       [startDate, endDate]
     );
 
-    const totalPossible = totalHabits * daysInMonth;
+    const totalPossible = totalHabits * monthDays;
     const totalCompleted = entriesResult.rows.length;
     const completionPct = totalPossible > 0 ? Math.round((totalCompleted / totalPossible) * 100) : 0;
+    const focusTotals = await getFocusTotalsByDate(startDate, endDate);
+    const totalFocusSeconds = Object.values(focusTotals).reduce((sum, value) => sum + value, 0);
 
     // Days with at least one completion
-    const uniqueDays = new Set(entriesResult.rows.map(e => {
-      return e.date instanceof Date ? e.date.toISOString().split('T')[0] : e.date;
-    }));
+    const uniqueDays = new Set(entriesResult.rows.map(e => e.date));
     const successfulDays = uniqueDays.size;
 
     // Calendar data (day → count)
     const calendar = {};
     const dailyDetails = {};
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    for (let d = 1; d <= monthDays; d++) {
+      const dateStr = monthDateKey(year, month, d);
       calendar[dateStr] = 0;
-      dailyDetails[dateStr] = buildDayDetails(dateStr, habits, entriesResult.rows);
+      dailyDetails[dateStr] = buildDayDetails(dateStr, habits, entriesResult.rows, focusTotals);
     }
     entriesResult.rows.forEach(e => {
       const dateStr = toDateKey(e.date);
@@ -164,12 +174,13 @@ router.get('/monthly', async (req, res) => {
     }
 
     res.json({
-      month: `${year}-${String(month + 1).padStart(2, '0')}`,
+      month: `${year}-${String(month).padStart(2, '0')}`,
       total_completed: totalCompleted,
       total_possible: totalPossible,
       completion_percentage: completionPct,
+      total_focus_seconds: totalFocusSeconds,
       successful_days: successfulDays,
-      days_in_month: daysInMonth,
+      days_in_month: monthDays,
       most_consistent_habit: mostConsistent,
       calendar,
       daily_details: dailyDetails,

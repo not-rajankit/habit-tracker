@@ -10,6 +10,12 @@ const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
+pool.on('connect', (client) => {
+  client.query(`SET TIME ZONE 'Asia/Kolkata'`).catch((err) => {
+    console.error('Failed to set database time zone', err);
+  });
+});
+
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   process.exit(-1);

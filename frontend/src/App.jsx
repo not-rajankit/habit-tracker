@@ -1,16 +1,16 @@
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
 import Home from './pages/Home';
-import WeeklySummary from './pages/WeeklySummary';
-import MonthlySummary from './pages/MonthlySummary';
+import Summary from './pages/Summary';
 import Goals from './pages/Goals';
 import HabitTable from './pages/HabitTable';
 import Manage from './pages/Manage';
+import Pomodoro from './pages/Pomodoro';
 
 const navItems = [
   { to: '/', label: 'Today', icon: '☀️' },
   { to: '/table', label: 'Table', icon: '▦' },
-  { to: '/weekly', label: 'Week', icon: '📊' },
-  { to: '/monthly', label: 'Month', icon: '📅' },
+  { to: '/pomodoro', label: 'Focus', icon: '⏱' },
+  { to: '/summary', label: 'Summary', icon: '📊' },
   { to: '/goals', label: 'Goals', icon: '🎯' },
   { to: '/manage', label: 'Manage', icon: '⚙️' },
 ];
@@ -24,8 +24,10 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/table" element={<HabitTable />} />
-            <Route path="/weekly" element={<WeeklySummary />} />
-            <Route path="/monthly" element={<MonthlySummary />} />
+            <Route path="/pomodoro" element={<Pomodoro />} />
+            <Route path="/summary" element={<Summary />} />
+            <Route path="/weekly" element={<Summary initialView="week" />} />
+            <Route path="/monthly" element={<Summary initialView="month" />} />
             <Route path="/goals" element={<Goals />} />
             <Route path="/manage" element={<Manage />} />
           </Routes>

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { toDateKey } from '../dateUtils.js';
 
 const router = Router();
 
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     const goals = await Promise.all(result.rows.map(async (goal) => {
       let progress = 0;
       if (goal.type === 'small' && goal.linked_habit_ids?.length > 0 && goal.deadline) {
-        const startDate = new Date(goal.created_at).toISOString().split('T')[0];
+        const startDate = toDateKey(goal.created_at);
         const endDate = goal.deadline;
         const entriesResult = await pool.query(
           `SELECT COUNT(*) as count FROM habit_entries

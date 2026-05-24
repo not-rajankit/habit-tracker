@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS habit_entries (
   habit_id    INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
   date        DATE NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(habit_id, date)
 );
 

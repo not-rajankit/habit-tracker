@@ -40,3 +40,8 @@ export const deleteGoal = (id) => request(`/goals/${id}`, { method: 'DELETE' });
 // Summary
 export const getWeeklySummary = (date) => request(`/summary/weekly${date ? `?date=${date}` : ''}`);
 export const getMonthlySummary = (date) => request(`/summary/monthly${date ? `?date=${date}` : ''}`);
+
+// Focus sessions
+export const getFocusSessions = (date) => request(`/focus-sessions${date ? `?date=${date}` : ''}`);
+export const createFocusSession = (data) => request('/focus-sessions', { method: 'POST', body: JSON.stringify(data) });
+export const deleteFocusSession = (id) => request(`/focus-sessions/${id}`, { method: 'DELETE' });

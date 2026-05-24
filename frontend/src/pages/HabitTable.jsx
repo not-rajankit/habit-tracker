@@ -135,6 +135,16 @@ export default function HabitTable() {
     [editHabits, editSearchTerm]
   );
 
+  const activeEditOrderById = useMemo(() => {
+    const orderById = {};
+    editHabits
+      .filter((habit) => !habit.archived)
+      .forEach((habit, index) => {
+        orderById[habit.id] = index + 1;
+      });
+    return orderById;
+  }, [editHabits]);
+
   useEffect(() => {
     if (editMode) setEditHabits(editableDailyHabits);
   }, [editableDailyHabits, editMode]);
@@ -694,7 +704,7 @@ export default function HabitTable() {
                   No active habits found.
                 </div>
               ) : (
-                <div className="max-h-[min(62vh,680px)] min-h-40 space-y-1.5 overflow-y-auto pr-1">
+                <div className="grid max-h-[min(62vh,680px)] min-h-40 grid-cols-1 gap-1.5 overflow-y-auto pr-1 xl:grid-cols-2">
                   {activeEditHabits.map((habit) => (
                     <div
                       key={habit.id}
@@ -712,10 +722,12 @@ export default function HabitTable() {
                         draggable
                         onDragStart={() => setDraggedHabitId(habit.id)}
                         className="flex h-8 w-8 cursor-grab items-center justify-center rounded-lg bg-white text-gray-400 opacity-100 shadow-sm transition-opacity active:cursor-grabbing sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
-                        title="Drag to reorder"
-                        aria-label={`Drag ${habit.name} to reorder`}
+                        title={`Order ${activeEditOrderById[habit.id]}. Drag to reorder`}
+                        aria-label={`Drag ${habit.name} to reorder. Current order ${activeEditOrderById[habit.id]}`}
                       >
-                        ☰
+                        <span className="text-xs font-bold tabular-nums">
+                          {activeEditOrderById[habit.id]}
+                        </span>
                       </button>
                       <span className="flex h-8 items-center justify-center text-base">{habit.icon}</span>
                       <input
@@ -749,7 +761,7 @@ export default function HabitTable() {
                 </button>
 
                 {showArchived && (
-                  <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                  <div className="mt-2 grid max-h-64 grid-cols-1 gap-1.5 overflow-y-auto pr-1 xl:grid-cols-2">
                     {archivedEditHabits.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-surface-200 bg-surface-50 px-3 py-5 text-center text-sm text-gray-400">
                         No archived habits found.

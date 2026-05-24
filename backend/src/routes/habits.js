@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { addDays, toDateKey } from '../dateUtils.js';
 
 const router = Router();
 
@@ -7,7 +8,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const includeArchived = req.query.include_archived === 'true';
-    const today = new Date().toISOString().split('T')[0];
+    const today = toDateKey();
     const result = await pool.query(`
       SELECT
         h.*,
@@ -143,13 +144,13 @@ router.delete('/:id', async (req, res) => {
 // ── Streak calculator ──
 async function calculateStreaks(habitId, frequency) {
   const entries = await pool.query(
-    `SELECT date FROM habit_entries WHERE habit_id = $1 ORDER BY date DESC`,
+    `SELECT to_char(date, 'YYYY-MM-DD') AS date FROM habit_entries WHERE habit_id = $1 ORDER BY date DESC`,
     [habitId]
   );
 
   if (entries.rows.length === 0) return { current: 0, best: 0 };
 
-  const dates = entries.rows.map(r => r.date.toISOString().split('T')[0]);
+  const dates = entries.rows.map(r => r.date);
 
   if (frequency === 'daily') {
     return calculateDailyStreaks(dates);
@@ -162,23 +163,22 @@ function calculateDailyStreaks(dates) {
   let current = 0;
   let best = 0;
   let streak = 0;
-  const today = new Date().toISOString().split('T')[0];
+  const today = toDateKey();
 
   // Check if today or yesterday is in the list to start current streak
   const dateSet = new Set(dates);
-  let checkDate = new Date();
+  let checkDate = today;
 
   // If today isn't completed, start from yesterday
   if (!dateSet.has(today)) {
-    checkDate.setDate(checkDate.getDate() - 1);
+    checkDate = addDays(today, -1);
   }
 
   // Count current streak
   while (true) {
-    const d = checkDate.toISOString().split('T')[0];
-    if (dateSet.has(d)) {
+    if (dateSet.has(checkDate)) {
       current++;
-      checkDate.setDate(checkDate.getDate() - 1);
+      checkDate = addDays(checkDate, -1);
     } else {
       break;
     }
@@ -189,10 +189,7 @@ function calculateDailyStreaks(dates) {
     if (i === 0) {
       streak = 1;
     } else {
-      const prev = new Date(dates[i - 1]);
-      const curr = new Date(dates[i]);
-      const diff = (prev - curr) / (1000 * 60 * 60 * 24);
-      if (diff === 1) {
+      if (addDays(dates[i], 1) === dates[i - 1]) {
         streak++;
       } else {
         streak = 1;
@@ -210,10 +207,10 @@ function calculateWeeklyStreaks(dates) {
   // Group by ISO week
   const weeks = new Set();
   dates.forEach(d => {
-    const date = new Date(d);
-    const startOfYear = new Date(date.getFullYear(), 0, 1);
-    const weekNum = Math.ceil(((date - startOfYear) / (1000 * 60 * 60 * 24) + startOfYear.getDay() + 1) / 7);
-    weeks.add(`${date.getFullYear()}-W${weekNum}`);
+    const date = new Date(`${d}T12:00:00Z`);
+    const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNum = Math.ceil(((date - startOfYear) / (1000 * 60 * 60 * 24) + startOfYear.getUTCDay() + 1) / 7);
+    weeks.add(`${date.getUTCFullYear()}-W${weekNum}`);
   });
 
   const sortedWeeks = Array.from(weeks).sort().reverse();

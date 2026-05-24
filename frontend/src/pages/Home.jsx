@@ -29,6 +29,10 @@ export default function Home() {
   const totalCount = habits.length;
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   const maxStreak = habits.length > 0 ? Math.max(...habits.map(h => h.current_streak)) : 0;
+  const sortedHabits = [...habits].sort((a, b) => {
+    if (a.completed_today === b.completed_today) return 0;
+    return a.completed_today ? 1 : -1;
+  });
 
   const today = new Date();
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -92,7 +96,7 @@ export default function Home() {
         </div>
       ) : (
         <div className="space-y-3">
-          {habits.map((habit, i) => (
+          {sortedHabits.map((habit, i) => (
             <div key={habit.id} style={{ animationDelay: `${i * 50}ms` }}>
               <div className="group relative">
                 <HabitCard habit={habit} onToggle={fetchHabits} />

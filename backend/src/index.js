@@ -9,6 +9,7 @@ import habitsRouter from './routes/habits.js';
 import entriesRouter from './routes/entries.js';
 import goalsRouter from './routes/goals.js';
 import summaryRouter from './routes/summary.js';
+import focusSessionsRouter from './routes/focusSessions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -24,6 +25,7 @@ app.use('/api/habits', habitsRouter);
 app.use('/api/entries', entriesRouter);
 app.use('/api/goals', goalsRouter);
 app.use('/api/summary', summaryRouter);
+app.use('/api/focus-sessions', focusSessionsRouter);
 
 // Health check
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));

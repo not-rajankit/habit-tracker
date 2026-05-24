@@ -6,6 +6,7 @@ const router = Router();
 // GET /api/habits — list all active habits with today's completion status & streaks
 router.get('/', async (req, res) => {
   try {
+    const includeArchived = req.query.include_archived === 'true';
     const today = new Date().toISOString().split('T')[0];
     const result = await pool.query(`
       SELECT
@@ -13,9 +14,9 @@ router.get('/', async (req, res) => {
         CASE WHEN he.id IS NOT NULL THEN true ELSE false END AS completed_today
       FROM habits h
       LEFT JOIN habit_entries he ON he.habit_id = h.id AND he.date = $1
-      WHERE h.archived = false
+      WHERE ($2::boolean = true OR h.archived = false)
       ORDER BY h.sort_order ASC NULLS LAST, h.created_at ASC, h.id ASC
-    `, [today]);
+    `, [today, includeArchived]);
 
     // Calculate streaks for each habit
     const habits = await Promise.all(result.rows.map(async (habit) => {
@@ -83,20 +84,37 @@ router.put('/order', async (req, res) => {
   }
 });
 
+// DELETE /api/habits/:id/permanent — permanently delete a habit and its entries
+router.delete('/:id/permanent', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `DELETE FROM habits WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
+    res.json({ message: 'Habit deleted' });
+  } catch (err) {
+    console.error('Error deleting habit:', err);
+    res.status(500).json({ error: 'Failed to delete habit' });
+  }
+});
+
 // PUT /api/habits/:id — update a habit
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, frequency, icon, category } = req.body;
+    const { name, frequency, icon, category, archived } = req.body;
     const result = await pool.query(
       `UPDATE habits SET
         name = COALESCE($1, name),
         frequency = COALESCE($2, frequency),
         icon = COALESCE($3, icon),
         category = COALESCE($4, category),
+        archived = COALESCE($5, archived),
         updated_at = NOW()
-       WHERE id = $5 RETURNING *`,
-      [name, frequency, icon, category, id]
+       WHERE id = $6 RETURNING *`,
+      [name, frequency, icon, category, archived, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
     res.json(result.rows[0]);

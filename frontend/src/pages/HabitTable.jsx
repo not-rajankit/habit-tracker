@@ -191,66 +191,66 @@ export default function HabitTable() {
         </div>
       ) : (
         <div className="overflow-x-auto sm:overflow-visible">
-          <div className={`rounded-2xl border border-surface-200/70 bg-white p-3 shadow-sm sm:min-w-0 sm:p-4 ${
-            mode === 'month' ? 'min-w-[780px]' : 'min-w-[520px]'
+          <div className={`rounded-2xl border border-surface-200/70 bg-[#fffdf7] p-3 shadow-sm sm:min-w-0 sm:p-4 ${
+            mode === 'month' ? 'min-w-[760px]' : 'min-w-[520px]'
           }`}>
             <div
-              className="grid items-stretch gap-[3px] sm:gap-1"
+              className="grid items-stretch gap-[3px] rounded-xl bg-[#ece7dd] p-[3px] sm:gap-1 sm:p-1"
               style={{
                 gridTemplateColumns: mode === 'month'
-                  ? `minmax(116px, 4fr) repeat(${days.length}, minmax(0, 1fr)) minmax(42px, 1.2fr)`
-                  : `minmax(132px, 3fr) repeat(${days.length}, minmax(28px, 1fr)) minmax(42px, 1fr)`,
+                  ? `minmax(140px, 4.5fr) repeat(${days.length}, minmax(0, 1fr)) minmax(58px, 1.6fr)`
+                  : `minmax(140px, 3.5fr) repeat(${days.length}, minmax(28px, 1fr)) minmax(58px, 1.2fr)`,
               }}
             >
-              <div className="flex min-h-12 items-center justify-center rounded border border-gray-300 bg-surface-50 px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-14">
+              <div className="flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
                 Day
               </div>
 
               {days.map((day) => {
                 const dateKey = toDateKey(day);
                 const isToday = dateKey === todayKey;
-                const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1 sm:mr-1.5' : '';
+                const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                 return (
                   <div
                     key={dateKey}
-                    className={`flex aspect-square min-h-5 flex-col items-center justify-center rounded border border-gray-300 bg-white text-[9px] font-bold leading-none text-gray-700 sm:min-h-6 ${
+                    className={`flex aspect-square min-h-5 min-w-0 flex-col items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] text-[8px] font-bold leading-none text-gray-700 sm:min-h-6 ${
                       isToday ? 'border-brand-500 bg-brand-50 text-brand-700 ring-1 ring-brand-300' : ''
-                    } ${weekGap}`}
+                    } ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''}`}
                     title={dateKey}
                   >
-                    <span>{day.getDate()}</span>
-                    <span className="mt-0.5 text-[8px] font-semibold text-gray-400">
+                    <span className="max-w-full truncate">{day.getDate()}</span>
+                    <span className="mt-0.5 max-w-full truncate text-[7px] font-semibold text-gray-400">
                       {WEEKDAY_NARROW[day.getDay()]}
                     </span>
                   </div>
                 );
               })}
 
-              <div className="flex min-h-12 items-center justify-center rounded border border-gray-300 bg-surface-50 px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-14">
+              <div className="flex min-h-11 items-center justify-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-1 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-12">
                 Result
               </div>
 
-              <div className="flex min-h-8 items-center rounded border border-gray-300 bg-surface-50 px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-9">
+              <div className="flex min-h-8 items-center rounded-md border border-[#cfc8bc] bg-[#fffaf0] px-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 sm:min-h-9">
                 Habit
               </div>
 
               {days.map((day) => {
                 const dateKey = toDateKey(day);
-                const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1 sm:mr-1.5' : '';
+                const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                 return (
                   <div
                     key={`${dateKey}-blank`}
-                    className={`aspect-square min-h-5 rounded border border-gray-200 bg-surface-50 sm:min-h-6 ${weekGap}`}
+                    className={`aspect-square min-h-5 min-w-0 rounded-md border border-[#ded8cf] bg-[#fffaf0] sm:min-h-6 ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''}`}
                     aria-hidden="true"
                   />
                 );
               })}
 
-              <div className="min-h-8 rounded border border-gray-300 bg-surface-50 sm:min-h-9" aria-hidden="true" />
+              <div className="min-h-8 rounded-md border border-[#cfc8bc] bg-[#fffaf0] sm:min-h-9" aria-hidden="true" />
 
               {dailyHabits.map((habit, habitIndex) => (
                 <div key={habit.id} className="contents">
-                  <div className="flex min-h-8 min-w-0 items-center rounded border border-gray-300 bg-white px-2 sm:min-h-9">
+                  <div className="flex min-h-8 min-w-0 items-center rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-2 sm:min-h-9">
                     <span className="mr-1.5 text-sm">{habit.icon}</span>
                     <span className="truncate text-[11px] font-semibold text-gray-700 sm:text-xs">
                       {habit.name}
@@ -262,16 +262,16 @@ export default function HabitTable() {
                     const cellKey = `${habit.id}-${dateKey}`;
                     const completed = completedKeys.has(cellKey);
                     const isToday = dateKey === todayKey;
-                    const weekGap = day.getDay() === 0 && dateKey !== endDate ? 'mr-1 sm:mr-1.5' : '';
+                    const weekBreak = day.getDay() === 0 && dateKey !== endDate;
                     const saving = savingKey === cellKey;
                     return (
                       <button
                         key={cellKey}
                         onClick={() => handleToggle(habit.id, dateKey)}
                         disabled={saving}
-                        className={`relative aspect-square min-h-5 rounded border border-gray-300 bg-white transition-colors hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-300 sm:min-h-6 ${
+                        className={`relative aspect-square min-h-5 min-w-0 rounded-md border border-[#cfc8bc] bg-[#fffdf7] transition-colors hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-300 sm:min-h-6 ${
                           isToday ? 'border-brand-400 bg-brand-50/60' : ''
-                        } ${weekGap} ${saving ? 'opacity-50' : ''}`}
+                        } ${weekBreak ? 'shadow-[5px_0_0_0_#ece7dd]' : ''} ${saving ? 'opacity-50' : ''}`}
                         title={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
                         aria-label={`${habit.name} on ${dateKey}: ${completed ? 'complete' : 'not complete'}`}
                       >
@@ -284,7 +284,7 @@ export default function HabitTable() {
                     );
                   })}
 
-                  <div className="flex min-h-8 items-center justify-center rounded border border-gray-300 bg-white text-xs font-bold text-gray-700 sm:min-h-9">
+                  <div className="flex min-h-8 min-w-0 items-center justify-center overflow-hidden rounded-md border border-[#cfc8bc] bg-[#fffdf7] px-1 text-[11px] font-bold text-gray-700 sm:min-h-9 sm:text-xs">
                     {habitTotals[habit.id] || 0}/{days.length}
                   </div>
                 </div>

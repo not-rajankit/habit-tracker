@@ -1,7 +1,8 @@
 -- Habit Tracker — Initial Schema
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS habits (
-  id          SERIAL PRIMARY KEY,
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name        VARCHAR(255) NOT NULL,
   frequency   VARCHAR(10) NOT NULL DEFAULT 'daily' CHECK (frequency IN ('daily', 'weekly')),
   icon        VARCHAR(10) DEFAULT '✅',
@@ -12,8 +13,8 @@ CREATE TABLE IF NOT EXISTS habits (
 );
 
 CREATE TABLE IF NOT EXISTS habit_entries (
-  id          SERIAL PRIMARY KEY,
-  habit_id    INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  habit_id    UUID NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
   date        DATE NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW(),
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS habit_entries (
 );
 
 CREATE TABLE IF NOT EXISTS goals (
-  id               SERIAL PRIMARY KEY,
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   type             VARCHAR(10) NOT NULL DEFAULT 'small' CHECK (type IN ('small', 'big')),
   title            VARCHAR(255) NOT NULL,
   description      TEXT,

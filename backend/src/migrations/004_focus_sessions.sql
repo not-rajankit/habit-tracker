@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS focus_sessions (
-  id               SERIAL PRIMARY KEY,
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   preset_name      VARCHAR(80) NOT NULL,
   duration_seconds INTEGER NOT NULL CHECK (duration_seconds > 0),
   started_at       TIMESTAMPTZ NOT NULL,

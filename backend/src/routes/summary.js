@@ -30,16 +30,17 @@ function buildDayDetails(dateStr, habits, entries, focusTotals = {}) {
   };
 }
 
-async function getFocusTotalsByDate(startDate, endDate) {
+async function getFocusTotalsByDate(userId, startDate, endDate) {
   const result = await pool.query(
     `SELECT
        to_char((ended_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS date,
        COALESCE(SUM(duration_seconds), 0)::int AS total_seconds
      FROM focus_sessions
-     WHERE (ended_at AT TIME ZONE 'Asia/Kolkata')::date >= $1::date
-       AND (ended_at AT TIME ZONE 'Asia/Kolkata')::date <= $2::date
+     WHERE user_id = $1
+       AND (ended_at AT TIME ZONE 'Asia/Kolkata')::date >= $2::date
+       AND (ended_at AT TIME ZONE 'Asia/Kolkata')::date <= $3::date
      GROUP BY (ended_at AT TIME ZONE 'Asia/Kolkata')::date`,
-    [startDate, endDate]
+    [userId, startDate, endDate]
   );
 
   return result.rows.reduce((totals, row) => {
@@ -56,7 +57,8 @@ router.get('/weekly', async (req, res) => {
     const endDate = addDays(startDate, 6);
 
     const habitsResult = await pool.query(
-      `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
+      `SELECT id, name, icon FROM habits WHERE user_id = $1 AND archived = false ORDER BY created_at ASC`,
+      [req.user.id]
     );
     const habits = habitsResult.rows;
     const totalHabits = habits.length;
@@ -66,14 +68,17 @@ router.get('/weekly', async (req, res) => {
       `SELECT he.habit_id, to_char(he.date, 'YYYY-MM-DD') AS date, h.name, h.icon
        FROM habit_entries he
        JOIN habits h ON h.id = he.habit_id
-       WHERE he.date >= $1 AND he.date <= $2 AND h.archived = false`,
-      [startDate, endDate]
+       WHERE h.user_id = $1
+         AND he.date >= $2
+         AND he.date <= $3
+         AND h.archived = false`,
+      [req.user.id, startDate, endDate]
     );
 
     const totalPossible = totalHabits * 7;
     const totalCompleted = entriesResult.rows.length;
     const completionPct = totalPossible > 0 ? Math.round((totalCompleted / totalPossible) * 100) : 0;
-    const focusTotals = await getFocusTotalsByDate(startDate, endDate);
+    const focusTotals = await getFocusTotalsByDate(req.user.id, startDate, endDate);
     const totalFocusSeconds = Object.values(focusTotals).reduce((sum, value) => sum + value, 0);
 
     // Best and weakest habits
@@ -123,7 +128,8 @@ router.get('/monthly', async (req, res) => {
     const endDate = monthDateKey(year, month, monthDays);
 
     const habitsResult = await pool.query(
-      `SELECT id, name, icon FROM habits WHERE archived = false ORDER BY created_at ASC`
+      `SELECT id, name, icon FROM habits WHERE user_id = $1 AND archived = false ORDER BY created_at ASC`,
+      [req.user.id]
     );
     const habits = habitsResult.rows;
     const totalHabits = habits.length;
@@ -131,14 +137,17 @@ router.get('/monthly', async (req, res) => {
     const entriesResult = await pool.query(
       `SELECT he.habit_id, to_char(he.date, 'YYYY-MM-DD') AS date, h.name, h.icon FROM habit_entries he
        JOIN habits h ON h.id = he.habit_id
-       WHERE he.date >= $1 AND he.date <= $2 AND h.archived = false`,
-      [startDate, endDate]
+       WHERE h.user_id = $1
+         AND he.date >= $2
+         AND he.date <= $3
+         AND h.archived = false`,
+      [req.user.id, startDate, endDate]
     );
 
     const totalPossible = totalHabits * monthDays;
     const totalCompleted = entriesResult.rows.length;
     const completionPct = totalPossible > 0 ? Math.round((totalCompleted / totalPossible) * 100) : 0;
-    const focusTotals = await getFocusTotalsByDate(startDate, endDate);
+    const focusTotals = await getFocusTotalsByDate(req.user.id, startDate, endDate);
     const totalFocusSeconds = Object.values(focusTotals).reduce((sum, value) => sum + value, 0);
 
     // Days with at least one completion
@@ -168,7 +177,7 @@ router.get('/monthly', async (req, res) => {
     for (const [hid, count] of Object.entries(habitCounts)) {
       if (count > maxCount) {
         maxCount = count;
-        const h = habits.find(h => h.id === parseInt(hid));
+        const h = habits.find(h => h.id === hid);
         if (h) mostConsistent = { ...h, count };
       }
     }

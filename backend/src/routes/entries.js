@@ -12,6 +12,12 @@ router.post('/toggle', async (req, res) => {
 
     const entryDate = toDateKey(date || new Date());
 
+    const habit = await pool.query(
+      `SELECT id FROM habits WHERE id = $1 AND user_id = $2`,
+      [habit_id, req.user.id]
+    );
+    if (habit.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
+
     // Check if entry exists
     const existing = await pool.query(
       `SELECT id FROM habit_entries WHERE habit_id = $1 AND date = $2`,
@@ -40,8 +46,12 @@ router.post('/toggle', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { habit_id, start_date, end_date } = req.query;
-    let query = `SELECT id, habit_id, to_char(date, 'YYYY-MM-DD') AS date, created_at, updated_at FROM habit_entries WHERE 1=1`;
-    const params = [];
+    let query = `
+      SELECT he.id, he.habit_id, to_char(he.date, 'YYYY-MM-DD') AS date, he.created_at, he.updated_at
+      FROM habit_entries he
+      JOIN habits h ON h.id = he.habit_id
+      WHERE h.user_id = $1`;
+    const params = [req.user.id];
 
     if (habit_id) {
       params.push(habit_id);

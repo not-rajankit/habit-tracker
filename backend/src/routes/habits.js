@@ -11,13 +11,14 @@ router.get('/', async (req, res) => {
     const today = toDateKey();
     const result = await pool.query(`
       SELECT
-        h.*,
+       h.*,
         CASE WHEN he.id IS NOT NULL THEN true ELSE false END AS completed_today
       FROM habits h
       LEFT JOIN habit_entries he ON he.habit_id = h.id AND he.date = $1
-      WHERE ($2::boolean = true OR h.archived = false)
+      WHERE h.user_id = $3
+        AND ($2::boolean = true OR h.archived = false)
       ORDER BY h.sort_order ASC NULLS LAST, h.created_at ASC, h.id ASC
-    `, [today, includeArchived]);
+    `, [today, includeArchived, req.user.id]);
 
     // Calculate streaks for each habit
     const habits = await Promise.all(result.rows.map(async (habit) => {
@@ -44,12 +45,12 @@ router.post('/', async (req, res) => {
 
     const result = await pool.query(
       `WITH next_order AS (
-         SELECT COALESCE(MAX(sort_order), 0) + 1 AS value FROM habits
+         SELECT COALESCE(MAX(sort_order), 0) + 1 AS value FROM habits WHERE user_id = $5
        )
-       INSERT INTO habits (name, frequency, icon, category, sort_order)
-       SELECT $1, $2, $3, $4, value FROM next_order
+       INSERT INTO habits (name, frequency, icon, category, sort_order, user_id)
+       SELECT $1, $2, $3, $4, value, $5 FROM next_order
        RETURNING *`,
-      [name, frequency, icon, category || null]
+      [name, frequency, icon, category || null, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -70,8 +71,8 @@ router.put('/order', async (req, res) => {
     await client.query('BEGIN');
     for (let index = 0; index < habit_ids.length; index++) {
       await client.query(
-        `UPDATE habits SET sort_order = $1, updated_at = NOW() WHERE id = $2`,
-        [index + 1, habit_ids[index]]
+        `UPDATE habits SET sort_order = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3`,
+        [index + 1, habit_ids[index], req.user.id]
       );
     }
     await client.query('COMMIT');
@@ -90,8 +91,8 @@ router.delete('/:id/permanent', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `DELETE FROM habits WHERE id = $1 RETURNING id`,
-      [id]
+      `DELETE FROM habits WHERE id = $1 AND user_id = $2 RETURNING id`,
+      [id, req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
     res.json({ message: 'Habit deleted' });
@@ -114,8 +115,8 @@ router.put('/:id', async (req, res) => {
         category = COALESCE($4, category),
         archived = COALESCE($5, archived),
         updated_at = NOW()
-       WHERE id = $6 RETURNING *`,
-      [name, frequency, icon, category, archived, id]
+       WHERE id = $6 AND user_id = $7 RETURNING *`,
+      [name, frequency, icon, category, archived, id, req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
     res.json(result.rows[0]);
@@ -130,8 +131,8 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `UPDATE habits SET archived = true, updated_at = NOW() WHERE id = $1 RETURNING *`,
-      [id]
+      `UPDATE habits SET archived = true, updated_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING *`,
+      [id, req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
     res.json({ message: 'Habit archived' });

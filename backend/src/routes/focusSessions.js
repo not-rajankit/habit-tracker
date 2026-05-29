@@ -26,9 +26,10 @@ router.get('/', async (req, res) => {
          (ended_at AT TIME ZONE 'Asia/Kolkata')::date AS date,
          created_at
        FROM focus_sessions
-       WHERE (ended_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
+       WHERE user_id = $2
+         AND (ended_at AT TIME ZONE 'Asia/Kolkata')::date = $1::date
        ORDER BY ended_at DESC`,
-      [date]
+      [date, req.user.id]
     );
 
     res.json({
@@ -61,8 +62,8 @@ router.post('/', async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO focus_sessions (preset_name, duration_seconds, started_at, ended_at)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO focus_sessions (preset_name, duration_seconds, started_at, ended_at, user_id)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING
          id,
          preset_name,
@@ -71,7 +72,7 @@ router.post('/', async (req, res) => {
          ended_at,
          (ended_at AT TIME ZONE 'Asia/Kolkata')::date AS date,
          created_at`,
-      [preset_name, duration, startedAt.toISOString(), endedAt.toISOString()]
+      [preset_name, duration, startedAt.toISOString(), endedAt.toISOString(), req.user.id]
     );
 
     res.status(201).json(mapSession(result.rows[0]));
@@ -84,8 +85,9 @@ router.post('/', async (req, res) => {
 // DELETE /api/focus-sessions/:id
 router.delete('/:id', async (req, res) => {
   try {
-    const result = await pool.query(`DELETE FROM focus_sessions WHERE id = $1 RETURNING id`, [
+    const result = await pool.query(`DELETE FROM focus_sessions WHERE id = $1 AND user_id = $2 RETURNING id`, [
       req.params.id,
+      req.user.id,
     ]);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Focus session not found' });

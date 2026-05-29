@@ -1,10 +1,13 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
+import authRouter from './authentication/routes.js';
+import { authenticate } from './authentication/middleware.js';
 import habitsRouter from './routes/habits.js';
 import entriesRouter from './routes/entries.js';
 import goalsRouter from './routes/goals.js';
@@ -16,16 +19,28 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const allowedOrigins = (process.env.CORS_ORIGIN || process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+app.use(cookieParser());
 app.use(express.json());
 
 // Routes
-app.use('/api/habits', habitsRouter);
-app.use('/api/entries', entriesRouter);
-app.use('/api/goals', goalsRouter);
-app.use('/api/summary', summaryRouter);
-app.use('/api/focus-sessions', focusSessionsRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/habits', authenticate, habitsRouter);
+app.use('/api/entries', authenticate, entriesRouter);
+app.use('/api/goals', authenticate, goalsRouter);
+app.use('/api/summary', authenticate, summaryRouter);
+app.use('/api/focus-sessions', authenticate, focusSessionsRouter);
 
 // Health check
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));

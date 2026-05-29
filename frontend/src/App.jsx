@@ -1,10 +1,17 @@
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import Home from './pages/Home';
 import Summary from './pages/Summary';
 import Goals from './pages/Goals';
 import HabitTable from './pages/HabitTable';
 import Manage from './pages/Manage';
 import Pomodoro from './pages/Pomodoro';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
+import AuthCallback from './pages/AuthCallback';
+import Profile from './pages/Profile';
 
 const navItems = [
   { to: '/', label: 'Today', icon: '☀️' },
@@ -13,11 +20,41 @@ const navItems = [
   { to: '/summary', label: 'Summary', icon: '📊' },
   { to: '/goals', label: 'Goals', icon: '🎯' },
   { to: '/manage', label: 'Manage', icon: '⚙️' },
+  { to: '/profile', label: 'Profile', icon: '◎' },
 ];
 
 export default function App() {
   return (
     <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/*" element={<ProtectedApp />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
+
+function ProtectedApp() {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-surface-50 text-sm font-bold text-gray-400">
+        Loading...
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+
+  return (
       <div className="min-h-screen bg-surface-50 lg:flex">
         {/* Main content */}
         <main className="flex-1 w-full max-w-6xl mx-auto pb-24 lg:pb-8 lg:pl-32 px-4 sm:px-6 lg:px-8">
@@ -30,6 +67,8 @@ export default function App() {
             <Route path="/monthly" element={<Summary initialView="month" />} />
             <Route path="/goals" element={<Goals />} />
             <Route path="/manage" element={<Manage />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
 
@@ -55,6 +94,5 @@ export default function App() {
           </div>
         </nav>
       </div>
-    </BrowserRouter>
   );
 }

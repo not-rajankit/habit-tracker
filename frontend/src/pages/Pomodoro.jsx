@@ -9,6 +9,61 @@ const PRESETS = [
 ];
 
 const MIN_TRACKED_SECONDS = 60;
+const ALERT_SOUND_STORAGE_KEY = 'pomodoro-alert-sound';
+const ALERT_VOLUME_STORAGE_KEY = 'pomodoro-alert-volume';
+const ALERT_DURATION_STORAGE_KEY = 'pomodoro-alert-duration';
+const GAIN_FLOOR = 0.0001;
+
+const ALERT_DURATIONS = [5, 10, 15, 30];
+
+const ALERT_SOUNDS = [
+  {
+    id: 'classic',
+    label: 'Classic beep',
+    tones: [
+      { offset: 0, frequency: 880, duration: 0.2, type: 'sine', level: 0.52 },
+      { offset: 0.24, frequency: 880, duration: 0.2, type: 'sine', level: 0.52 },
+      { offset: 0.48, frequency: 880, duration: 0.24, type: 'sine', level: 0.56 },
+    ],
+  },
+  {
+    id: 'bright-chime',
+    label: 'Bright chime',
+    tones: [
+      { offset: 0, frequency: 659.25, duration: 0.22, type: 'triangle', level: 0.48 },
+      { offset: 0.18, frequency: 880, duration: 0.28, type: 'triangle', level: 0.5 },
+      { offset: 0.38, frequency: 1318.51, duration: 0.34, type: 'sine', level: 0.46 },
+    ],
+  },
+  {
+    id: 'bell',
+    label: 'Bell',
+    tones: [
+      { offset: 0, frequency: 987.77, duration: 0.7, type: 'sine', level: 0.5 },
+      { offset: 0.03, frequency: 1975.53, duration: 0.55, type: 'triangle', level: 0.28 },
+      { offset: 0.08, frequency: 1480, duration: 0.42, type: 'sine', level: 0.22 },
+    ],
+  },
+  {
+    id: 'digital',
+    label: 'Digital alert',
+    tones: [
+      { offset: 0, frequency: 1046.5, duration: 0.12, type: 'square', level: 0.36 },
+      { offset: 0.16, frequency: 784, duration: 0.12, type: 'square', level: 0.36 },
+      { offset: 0.32, frequency: 1046.5, duration: 0.18, type: 'square', level: 0.4 },
+      { offset: 0.54, frequency: 1318.51, duration: 0.2, type: 'square', level: 0.34 },
+    ],
+  },
+  {
+    id: 'soft-pulse',
+    label: 'Soft pulse',
+    tones: [
+      { offset: 0, frequency: 523.25, duration: 0.24, type: 'sine', level: 0.44 },
+      { offset: 0.28, frequency: 659.25, duration: 0.24, type: 'sine', level: 0.44 },
+      { offset: 0.56, frequency: 783.99, duration: 0.36, type: 'sine', level: 0.48 },
+    ],
+  },
+];
 
 function toDateKey(date) {
   const year = date.getFullYear();
@@ -48,11 +103,26 @@ export default function Pomodoro() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [soundSettingsOpen, setSoundSettingsOpen] = useState(false);
+  const [alertSoundId, setAlertSoundId] = useState(() => {
+    const savedSound = window.localStorage.getItem(ALERT_SOUND_STORAGE_KEY);
+    return ALERT_SOUNDS.some((sound) => sound.id === savedSound) ? savedSound : ALERT_SOUNDS[0].id;
+  });
+  const [alertVolume, setAlertVolume] = useState(() => {
+    const savedVolume = Number(window.localStorage.getItem(ALERT_VOLUME_STORAGE_KEY));
+    return Number.isFinite(savedVolume) ? Math.min(100, Math.max(0, savedVolume)) : 85;
+  });
+  const [alertDuration, setAlertDuration] = useState(() => {
+    const savedDuration = Number(window.localStorage.getItem(ALERT_DURATION_STORAGE_KEY));
+    return ALERT_DURATIONS.includes(savedDuration) ? savedDuration : 5;
+  });
   const [notificationPermission, setNotificationPermission] = useState(() =>
     'Notification' in window ? window.Notification.permission : 'unsupported'
   );
   const completionSavedRef = useRef(false);
   const audioContextRef = useRef(null);
+  const alertPlaybackIdRef = useRef(0);
+  const activeAlertRef = useRef({ nodes: [], timeoutId: null });
   const titleTimerRef = useRef(null);
   const originalTitleRef = useRef(document.title);
 
@@ -62,6 +132,10 @@ export default function Pomodoro() {
   );
   const isFocusPreset = selectedPreset.type === 'focus';
   const timerColor = isFocusPreset ? '#0c87f0' : '#34d399';
+  const selectedAlertSound = useMemo(
+    () => ALERT_SOUNDS.find((sound) => sound.id === alertSoundId) || ALERT_SOUNDS[0],
+    [alertSoundId]
+  );
   const progress = durationSeconds > 0
     ? ((durationSeconds - remainingSeconds) / durationSeconds) * 100
     : 0;
@@ -100,30 +174,117 @@ export default function Pomodoro() {
     }
   };
 
-  const playCompletionSound = useCallback(async () => {
+  const stopCompletionSound = useCallback(() => {
+    if (activeAlertRef.current.timeoutId) {
+      window.clearTimeout(activeAlertRef.current.timeoutId);
+      activeAlertRef.current.timeoutId = null;
+    }
+
+    activeAlertRef.current.nodes.forEach((node) => {
+      try {
+        if (typeof node.stop === 'function') node.stop();
+      } catch (err) {
+        // Oscillators throw if stopped twice; disconnect below still cleans up.
+      }
+
+      try {
+        node.disconnect();
+      } catch (err) {
+        // Already-disconnected nodes are harmless.
+      }
+    });
+
+    activeAlertRef.current.nodes = [];
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(ALERT_SOUND_STORAGE_KEY, alertSoundId);
+  }, [alertSoundId]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ALERT_VOLUME_STORAGE_KEY, String(alertVolume));
+  }, [alertVolume]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ALERT_DURATION_STORAGE_KEY, String(alertDuration));
+  }, [alertDuration]);
+
+  const playAlertSound = useCallback(async (duration = alertDuration) => {
     try {
+      const playbackId = alertPlaybackIdRef.current + 1;
+      alertPlaybackIdRef.current = playbackId;
+      stopCompletionSound();
       await prepareAudio();
+      if (alertPlaybackIdRef.current !== playbackId) return;
+
       const audioContext = audioContextRef.current;
       if (!audioContext) return;
 
       const now = audioContext.currentTime;
-      [0, 0.22, 0.44].forEach((offset) => {
-        const oscillator = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, now + offset);
-        gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.exponentialRampToValueAtTime(0.18, now + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
-        oscillator.connect(gain);
-        gain.connect(audioContext.destination);
-        oscillator.start(now + offset);
-        oscillator.stop(now + offset + 0.18);
-      });
+      const playbackDuration = Math.max(0.5, duration);
+      const volumeMultiplier = alertVolume / 100;
+      const masterGain = audioContext.createGain();
+      const limiter = audioContext.createDynamicsCompressor();
+      const activeNodes = [masterGain, limiter];
+
+      limiter.threshold.setValueAtTime(-10, now);
+      limiter.knee.setValueAtTime(4, now);
+      limiter.ratio.setValueAtTime(12, now);
+      limiter.attack.setValueAtTime(0.003, now);
+      limiter.release.setValueAtTime(0.12, now);
+
+      masterGain.gain.setValueAtTime(volumeMultiplier, now);
+      masterGain.connect(limiter);
+      limiter.connect(audioContext.destination);
+
+      const patternDuration = Math.max(...selectedAlertSound.tones.map((tone) => tone.offset + tone.duration));
+      const repeatInterval = Math.max(patternDuration + 0.35, 1);
+      const repeatCount = Math.max(1, Math.ceil(playbackDuration / repeatInterval));
+
+      for (let repeatIndex = 0; repeatIndex < repeatCount; repeatIndex += 1) {
+        const repeatOffset = repeatIndex * repeatInterval;
+
+        selectedAlertSound.tones.forEach((tone) => {
+          const start = now + repeatOffset + tone.offset;
+          if (start - now >= playbackDuration) return;
+
+          const end = Math.min(start + tone.duration, now + playbackDuration);
+          const oscillator = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          activeNodes.push(oscillator, gain);
+
+          oscillator.type = tone.type;
+          oscillator.frequency.setValueAtTime(tone.frequency, start);
+          gain.gain.setValueAtTime(GAIN_FLOOR, start);
+          gain.gain.exponentialRampToValueAtTime(tone.level, start + 0.02);
+          gain.gain.exponentialRampToValueAtTime(GAIN_FLOOR, end);
+          oscillator.connect(gain);
+          gain.connect(masterGain);
+          oscillator.start(start);
+          oscillator.stop(end + 0.01);
+        });
+      }
+
+      const disconnectAt = playbackDuration + 0.15;
+      activeAlertRef.current.nodes = activeNodes;
+      activeAlertRef.current.timeoutId = window.setTimeout(() => {
+        activeAlertRef.current.nodes.forEach((node) => {
+          try {
+            node.disconnect();
+          } catch (err) {
+            // Already-disconnected nodes are harmless.
+          }
+        });
+        activeAlertRef.current.nodes = [];
+        activeAlertRef.current.timeoutId = null;
+      }, disconnectAt * 1000);
     } catch (err) {
       console.error(err);
     }
-  }, []);
+  }, [alertDuration, alertVolume, selectedAlertSound, stopCompletionSound]);
+
+  const playCompletionSound = useCallback(() => playAlertSound(alertDuration), [alertDuration, playAlertSound]);
+  const testAlertSound = useCallback(() => playAlertSound(2), [playAlertSound]);
 
   const notifyTimerComplete = useCallback((preset) => {
     const title = `${preset.label} ended`;
@@ -159,7 +320,10 @@ export default function Pomodoro() {
     fetchDailyFocus();
   }, [fetchDailyFocus]);
 
-  useEffect(() => () => stopTitleAlert(), [stopTitleAlert]);
+  useEffect(() => () => {
+    stopTitleAlert();
+    stopCompletionSound();
+  }, [stopCompletionSound, stopTitleAlert]);
 
   useEffect(() => {
     if (status !== 'running' || !sessionEnd) return undefined;
@@ -415,6 +579,29 @@ export default function Pomodoro() {
               <span>
                 Alerts: {notificationPermission === 'granted' ? 'browser on' : notificationPermission === 'denied' ? 'browser blocked' : notificationPermission === 'unsupported' ? 'sound only' : 'sound on'}
               </span>
+              <button
+                type="button"
+                onClick={() => setSoundSettingsOpen((isOpen) => !isOpen)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-surface-200 bg-white px-2.5 py-1 font-bold text-gray-500 hover:bg-surface-50"
+                aria-expanded={soundSettingsOpen}
+                aria-controls="pomodoro-audio-settings"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                </svg>
+                Audio
+              </button>
               {notificationPermission === 'default' && (
                 <button
                   type="button"
@@ -425,6 +612,64 @@ export default function Pomodoro() {
                 </button>
               )}
             </div>
+            {soundSettingsOpen && (
+              <div
+                id="pomodoro-audio-settings"
+                className="mt-4 grid w-full max-w-md gap-3 rounded-xl border border-surface-200 bg-white p-3 sm:grid-cols-[1fr_auto] sm:items-end"
+              >
+                <label className="block">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Alert sound</span>
+                  <select
+                    value={alertSoundId}
+                    onChange={(event) => setAlertSoundId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-gray-300"
+                  >
+                    {ALERT_SOUNDS.map((sound) => (
+                      <option key={sound.id} value={sound.id}>
+                        {sound.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={testAlertSound}
+                  className="rounded-lg border border-surface-200 bg-surface-50 px-4 py-2 text-sm font-bold text-gray-600 hover:bg-white"
+                >
+                  Test sound
+                </button>
+                <label className="block sm:col-span-2">
+                  <span className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-gray-400">
+                    <span>Volume</span>
+                    <span>{alertVolume}%</span>
+                  </span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={alertVolume}
+                    onChange={(event) => setAlertVolume(Number(event.target.value))}
+                    className="mt-2 w-full accent-gray-800"
+                    aria-label="Alert volume"
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Alert duration</span>
+                  <select
+                    value={alertDuration}
+                    onChange={(event) => setAlertDuration(Number(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-surface-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 outline-none focus:border-gray-300"
+                  >
+                    {ALERT_DURATIONS.map((duration) => (
+                      <option key={duration} value={duration}>
+                        {duration} seconds
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
             {message && <p className="mt-4 text-sm font-semibold text-gray-400">{message}</p>}
           </div>
         </section>

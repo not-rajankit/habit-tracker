@@ -3,6 +3,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
   if (!res.ok) {
@@ -11,6 +12,18 @@ async function request(path, options = {}) {
   }
   return res.json();
 }
+
+export const googleAuthUrl = (intent = 'login') => `${API_BASE}/auth/google?intent=${encodeURIComponent(intent)}`;
+
+// Auth
+export const getCurrentUser = () => request('/auth/me');
+export const signup = (data) => request('/auth/signup', { method: 'POST', body: JSON.stringify(data) });
+export const login = (data) => request('/auth/login', { method: 'POST', body: JSON.stringify(data) });
+export const logout = () => request('/auth/logout', { method: 'POST' });
+export const updateProfile = (data) => request('/auth/me', { method: 'PUT', body: JSON.stringify(data) });
+export const changePassword = (data) => request('/auth/password/change', { method: 'POST', body: JSON.stringify(data) });
+export const forgotPassword = (data) => request('/auth/password/forgot', { method: 'POST', body: JSON.stringify(data) });
+export const resetPassword = (data) => request('/auth/password/reset', { method: 'POST', body: JSON.stringify(data) });
 
 // Habits
 export const getHabits = (params = {}) => {

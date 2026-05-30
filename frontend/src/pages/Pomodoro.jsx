@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFocusSession, deleteFocusSession, getFocusSessions } from '../api';
+import { dispatchPomodoroAlarm, preparePomodoroAlarm } from '../components/PomodoroAlarm';
 
 const PRESETS = [
   { id: 'deep-focus', label: 'Deep focus', minutes: 25, type: 'focus' },
@@ -9,6 +10,7 @@ const PRESETS = [
 ];
 
 const MIN_TRACKED_SECONDS = 60;
+const TIMER_STORAGE_KEY = 'pomodoro-active-timer';
 const ALERT_SOUND_STORAGE_KEY = 'pomodoro-alert-sound';
 const ALERT_VOLUME_STORAGE_KEY = 'pomodoro-alert-volume';
 const ALERT_DURATION_STORAGE_KEY = 'pomodoro-alert-duration';
@@ -91,14 +93,86 @@ function formatTime(value) {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function getPresetById(presetId) {
+  return PRESETS.find((preset) => preset.id === presetId) || PRESETS[0];
+}
+
+function getDefaultTimerState() {
+  return {
+    selectedPresetId: PRESETS[0].id,
+    status: 'idle',
+    durationSeconds: PRESETS[0].minutes * 60,
+    remainingSeconds: PRESETS[0].minutes * 60,
+    sessionStart: null,
+    sessionEnd: null,
+    trackedSeconds: 0,
+  };
+}
+
+function getInitialTimerState() {
+  const defaultState = getDefaultTimerState();
+
+  try {
+    const stored = window.sessionStorage.getItem(TIMER_STORAGE_KEY);
+    if (!stored) return defaultState;
+
+    const parsed = JSON.parse(stored);
+    const preset = getPresetById(parsed.selectedPresetId);
+    const status = ['running', 'paused', 'complete'].includes(parsed.status) ? parsed.status : 'idle';
+    const durationSeconds = Number.isFinite(parsed.durationSeconds) && parsed.durationSeconds > 0
+      ? parsed.durationSeconds
+      : preset.minutes * 60;
+    const sessionStart = Number.isFinite(parsed.sessionStart) ? parsed.sessionStart : null;
+    const sessionEnd = Number.isFinite(parsed.sessionEnd) ? parsed.sessionEnd : null;
+    const trackedSeconds = Number.isFinite(parsed.trackedSeconds)
+      ? Math.max(0, Math.floor(parsed.trackedSeconds))
+      : 0;
+
+    if (status === 'running' && sessionStart && sessionEnd) {
+      const now = Date.now();
+      return {
+        selectedPresetId: preset.id,
+        status,
+        durationSeconds,
+        remainingSeconds: Math.max(0, Math.ceil((sessionEnd - now) / 1000)),
+        sessionStart,
+        sessionEnd,
+        trackedSeconds: Math.max(0, Math.floor((now - sessionStart) / 1000)),
+      };
+    }
+
+    if (status === 'paused' || status === 'complete') {
+      const remainingSeconds = Number.isFinite(parsed.remainingSeconds)
+        ? Math.max(0, Math.ceil(parsed.remainingSeconds))
+        : Math.max(0, durationSeconds - trackedSeconds);
+
+      return {
+        selectedPresetId: preset.id,
+        status,
+        durationSeconds,
+        remainingSeconds,
+        sessionStart,
+        sessionEnd: null,
+        trackedSeconds,
+      };
+    }
+  } catch (err) {
+    console.error(err);
+    window.sessionStorage.removeItem(TIMER_STORAGE_KEY);
+  }
+
+  return defaultState;
+}
+
 export default function Pomodoro() {
-  const [selectedPresetId, setSelectedPresetId] = useState(PRESETS[0].id);
-  const [status, setStatus] = useState('idle');
-  const [durationSeconds, setDurationSeconds] = useState(PRESETS[0].minutes * 60);
-  const [remainingSeconds, setRemainingSeconds] = useState(PRESETS[0].minutes * 60);
-  const [sessionStart, setSessionStart] = useState(null);
-  const [sessionEnd, setSessionEnd] = useState(null);
-  const [trackedSeconds, setTrackedSeconds] = useState(0);
+  const initialTimerState = useMemo(() => getInitialTimerState(), []);
+  const [selectedPresetId, setSelectedPresetId] = useState(initialTimerState.selectedPresetId);
+  const [status, setStatus] = useState(initialTimerState.status);
+  const [durationSeconds, setDurationSeconds] = useState(initialTimerState.durationSeconds);
+  const [remainingSeconds, setRemainingSeconds] = useState(initialTimerState.remainingSeconds);
+  const [sessionStart, setSessionStart] = useState(initialTimerState.sessionStart);
+  const [sessionEnd, setSessionEnd] = useState(initialTimerState.sessionEnd);
+  const [trackedSeconds, setTrackedSeconds] = useState(initialTimerState.trackedSeconds);
   const [dailyFocus, setDailyFocus] = useState({ date: toDateKey(new Date()), total_seconds: 0, sessions: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -197,6 +271,12 @@ export default function Pomodoro() {
     activeAlertRef.current.nodes = [];
   }, []);
 
+  const stopCompletionAlarm = useCallback(() => {
+    alertPlaybackIdRef.current += 1;
+    stopCompletionSound();
+    stopTitleAlert();
+  }, [stopCompletionSound, stopTitleAlert]);
+
   useEffect(() => {
     window.localStorage.setItem(ALERT_SOUND_STORAGE_KEY, alertSoundId);
   }, [alertSoundId]);
@@ -283,27 +363,18 @@ export default function Pomodoro() {
     }
   }, [alertDuration, alertVolume, selectedAlertSound, stopCompletionSound]);
 
-  const playCompletionSound = useCallback(() => playAlertSound(alertDuration), [alertDuration, playAlertSound]);
   const testAlertSound = useCallback(() => playAlertSound(2), [playAlertSound]);
 
   const notifyTimerComplete = useCallback((preset) => {
     const title = `${preset.label} ended`;
     const body = preset.type === 'focus' ? 'Time for a break.' : 'Break is over.';
 
-    playCompletionSound();
+    dispatchPomodoroAlarm({ key: String(sessionEnd || Date.now()), title, body });
 
     if ('Notification' in window && window.Notification.permission === 'granted') {
       new window.Notification(title, { body });
     }
-
-    stopTitleAlert();
-    let showAlertTitle = true;
-    document.title = title;
-    titleTimerRef.current = window.setInterval(() => {
-      document.title = showAlertTitle ? title : originalTitleRef.current;
-      showAlertTitle = !showAlertTitle;
-    }, 1200);
-  }, [playCompletionSound, stopTitleAlert]);
+  }, [sessionEnd]);
 
   const fetchDailyFocus = useCallback(async () => {
     try {
@@ -319,6 +390,23 @@ export default function Pomodoro() {
   useEffect(() => {
     fetchDailyFocus();
   }, [fetchDailyFocus]);
+
+  useEffect(() => {
+    if (status === 'idle') {
+      window.sessionStorage.removeItem(TIMER_STORAGE_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify({
+      selectedPresetId,
+      status,
+      durationSeconds,
+      remainingSeconds,
+      sessionStart,
+      sessionEnd,
+      trackedSeconds,
+    }));
+  }, [durationSeconds, remainingSeconds, selectedPresetId, sessionEnd, sessionStart, status, trackedSeconds]);
 
   useEffect(() => () => {
     stopTitleAlert();
@@ -386,7 +474,7 @@ export default function Pomodoro() {
 
   const selectPreset = (preset) => {
     if (status === 'running') return;
-    stopTitleAlert();
+    stopCompletionAlarm();
     setSelectedPresetId(preset.id);
     setDurationSeconds(preset.minutes * 60);
     setRemainingSeconds(preset.minutes * 60);
@@ -397,8 +485,9 @@ export default function Pomodoro() {
 
   const startTimer = async () => {
     const now = Date.now();
-    stopTitleAlert();
+    stopCompletionAlarm();
     await prepareAudio();
+    preparePomodoroAlarm();
     requestNotificationPermission();
     completionSavedRef.current = false;
     setSessionStart(now - trackedSeconds * 1000);
@@ -418,7 +507,7 @@ export default function Pomodoro() {
 
   const resetTimer = ({ keepMessage = false } = {}) => {
     completionSavedRef.current = false;
-    stopTitleAlert();
+    stopCompletionAlarm();
     setStatus('idle');
     setRemainingSeconds(durationSeconds);
     setTrackedSeconds(0);

@@ -15,6 +15,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AuthCallback from './pages/AuthCallback';
 import Profile from './pages/Profile';
+import PomodoroAlarm from './components/PomodoroAlarm';
 import { AvatarBadge } from './avatar/AvatarContext.jsx';
 
 const navItems = [
@@ -80,9 +81,12 @@ function ProtectedApp() {
 
   if (location.pathname.startsWith('/admin')) {
     return (
-      <Routes>
-        <Route path="/admin/*" element={<Admin />} />
-      </Routes>
+      <>
+        <PomodoroAlarm />
+        <Routes>
+          <Route path="/admin/*" element={<Admin />} />
+        </Routes>
+      </>
     );
   }
 
@@ -107,6 +111,8 @@ function ProtectedApp() {
 
   return (
       <div className="min-h-screen bg-surface-50 lg:flex">
+        <PomodoroAlarm />
+
         {/* Main content */}
         <main className={`flex-1 w-full max-w-6xl mx-auto pb-24 lg:pb-8 ${mainPaddingClass} px-4 sm:px-6 lg:px-8 lg:transition-[padding-left] lg:duration-300 lg:ease-out`}>
           <Routes>

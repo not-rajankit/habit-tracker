@@ -7,6 +7,8 @@ BACKEND_PID="$RUN_DIR/backend.pid"
 FRONTEND_PID="$RUN_DIR/frontend.pid"
 BACKEND_LOG="$RUN_DIR/backend.log"
 FRONTEND_LOG="$RUN_DIR/frontend.log"
+DEFAULT_BACKEND_PORT="3001"
+DEFAULT_FRONTEND_PORT="5173"
 
 mkdir -p "$RUN_DIR"
 
@@ -61,22 +63,56 @@ stop_process() {
     local pid
     pid="$(cat "$pid_file")"
     echo "Stopping $name (pid $pid)..."
-    kill "$pid"
-
-    for _ in $(seq 1 20); do
-      if ! kill -0 "$pid" >/dev/null 2>&1; then
-        break
-      fi
-      sleep 0.2
-    done
-
-    if kill -0 "$pid" >/dev/null 2>&1; then
-      echo "$name did not stop cleanly; forcing stop..."
-      kill -9 "$pid" >/dev/null 2>&1 || true
-    fi
+    stop_pid_tree "$pid" "$name"
   fi
 
   rm -f "$pid_file"
+}
+
+child_pids() {
+  local pid="$1"
+  pgrep -P "$pid" 2>/dev/null || true
+}
+
+stop_pid_tree() {
+  local pid="$1"
+  local name="$2"
+  local children child
+
+  children="$(child_pids "$pid")"
+  for child in $children; do
+    stop_pid_tree "$child" "$name"
+  done
+
+  kill "$pid" >/dev/null 2>&1 || true
+
+  for _ in $(seq 1 20); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.2
+  done
+
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    echo "$name process $pid did not stop cleanly; forcing stop..."
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  fi
+}
+
+stop_port_listeners() {
+  local name="$1"
+  local port="$2"
+  local pids pid
+
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+
+  for pid in $pids; do
+    echo "Stopping $name listener on port $port (pid $pid)..."
+    stop_pid_tree "$pid" "$name"
+  done
 }
 
 start_processes() {
@@ -117,8 +153,13 @@ start_processes() {
 }
 
 stop_processes() {
+  load_env
+
   stop_process "frontend" "$FRONTEND_PID"
   stop_process "backend" "$BACKEND_PID"
+  stop_port_listeners "frontend" "$DEFAULT_FRONTEND_PORT"
+  stop_port_listeners "backend" "${PORT:-$DEFAULT_BACKEND_PORT}"
+
   echo "Application processes stopped."
   echo "Postgres is still running. Stop it with: docker compose down"
 }

@@ -1,322 +1,495 @@
-Simple Habit Tracker — PRD
-1. Product Overview
+# Habit Template & Admin System Architecture
 
-A lightweight habit tracking app focused on:
+## Overview
 
-Daily habit tracking
-Streaks
-Weekly & monthly progress summaries
-Small goals and big goals
-Minimal friction
-Fast to use
+The application already supports:
 
-The app should feel calm, motivating, and simple — not like a productivity dashboard.
+* multi-user authentication
+* Google OAuth
+* email/password login
 
-2. Core Product Principles
-Keep it simple
+Now we want to implement:
 
-Users should be able to:
+1. Admin panel
+2. Roles to user and their management
+3. Habit Template system
+4. Analytics dashboard
+5. Platform-managed suggested habits
 
-Open app
-Mark habits complete
-See streaks
-Review progress
-Leave
+IMPORTANT:
+User-created habits and goals are private and should NOT be visible in admin panels unless specifically required for moderation/support purposes.
 
-Within 30–60 seconds/day.
+The platform should separate:
 
-No feature overload
+* User-owned data
+* Platform-managed content
 
-Avoid:
+---
 
-Social features
-Complex analytics
-Gamification overload
-AI coaching
-Deep customization initially
-Mobile-first mindset
+# Roles
 
-The primary action is checking off habits quickly.
+## SystemAdmin
 
-3. Target User
+Full platform access.
 
-People who:
+Permissions:
 
-Want consistency
-Like streak motivation
-Get overwhelmed by complex productivity apps
-Want clarity over optimization
+* manage admins
+* manage roles
+* manage users
+* manage habit templates
+* manage categories
+* manage featured packs
+* view analytics
+* suspend users
+* access system settings
 
-4. MVP Features
-A. Habit Management
-Create Habit
+---
 
-Fields:
+## Admin
 
-Habit name
-Frequency
-Daily
-Weekly
-Optional emoji/icon
-Optional category
+Permissions:
+
+* view users
+* view analytics
+* manage habit templates
+* manage categories
+* manage packs
+
+Restrictions:
+
+* cannot create admins
+* cannot manage roles
+* cannot access system settings
+* cannot access private user habit data
+
+---
+
+## User
+
+Permissions:
+
+* manage own habits
+* manage own goals
+* use templates
+* customize imported templates
+
+---
+
+# Privacy Rules
+
+Admins should NOT:
+
+* view private habits
+* view journal entries
+* view personal notes
+* inspect user goals
+* access sensitive personal tracking data
+
+Admins MAY:
+
+* view aggregate analytics
+* view anonymized platform statistics
+* moderate accounts if needed
+
+---
+
+# Admin Panel Structure
+
+```txt
+Admin Dashboard
+├── Overview
+├── Users
+├── Analytics
+├── Habit Templates
+├── Categories
+├── Featured Packs
+├── Activity Logs
+├── Roles & Permissions (SystemAdmin only)
+└── System Settings (SystemAdmin only)
+```
+
+---
+
+# Habit Template System
+
+The platform should provide curated habit suggestions users can quickly add to their account.
+
+Templates are NOT user habits.
+
+Templates are reusable blueprints.
+
+When a user selects a template:
+
+* create a new user-owned habit
+* copy template values into the user's habit
+* do not link the user habit directly to the template
+
+This prevents shared-state issues.
+
+---
+
+# Habit Template Categories
+
+Suggested default categories:
+
+* Health
+* Fitness
+* Productivity
+* Learning
+* Mental Health
+* Sleep
+* Finance
+* Mindfulness
+* Career
+* Relationships
+
+---
+
+# Example Templates
+
+* Drink Water
+* Morning Walk
+* Read 10 Pages
+* Sleep Before 11PM
+* Meditate 5 Minutes
+* Workout Daily
+* Journal Daily
+* Practice Coding
+* Track Expenses
+* Stretching
+
+---
+
+# Habit Packs
+
+Support collections of habits.
 
 Examples:
 
-Read 10 pages
-Workout
-Drink water
-Journal
-Edit/Delete Habit
+* Beginner Productivity Pack
+* Morning Routine Pack
+* 30-Day Fitness Starter
+* Student Focus Pack
+* Mental Wellness Basics
 
-Basic CRUD.
+Each pack contains multiple templates.
 
-5. Habit Tracking
-Daily Check-in
+---
 
-User can:
+# Database Schema
 
-Mark habit complete
-Unmark if needed
-UX Goal
+## roles
 
-One tap completion.
+```sql
+CREATE TABLE roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+add all the roles related tables to authorisation schema
+---
 
-6. Streak System
+## user_roles
 
-Each habit shows:
+```sql
+CREATE TABLE user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
+    assigned_by UUID REFERENCES users(id),
+    assigned_at TIMESTAMP DEFAULT NOW()
+);
+```
 
-Current streak
-Best streak
+---
 
-Rules:
+## permissions
 
-Daily habits:
-Consecutive days
-Weekly habits:
-Consecutive successful weeks
+```sql
+CREATE TABLE permissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) UNIQUE NOT NULL
+);
+```
+
+---
+
+## role_permissions
+
+```sql
+CREATE TABLE role_permissions (
+    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
+    permission_id UUID REFERENCES permissions(id) ON DELETE CASCADE,
+    PRIMARY KEY(role_id, permission_id)
+);
+```
+
+---
+
+# Habit Template Tables
+
+## habit_template_categories
+
+```sql
+CREATE TABLE habit_template_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    icon VARCHAR(100),
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## habit_templates
+
+```sql
+CREATE TABLE habit_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    category_id UUID REFERENCES habit_template_categories(id),
+    icon VARCHAR(100),
+    color VARCHAR(50),
+    difficulty VARCHAR(50),
+    frequency_type VARCHAR(50),
+    default_goal INTEGER,
+    is_featured BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    usage_count INTEGER DEFAULT 0,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## habit_template_packs
+
+```sql
+CREATE TABLE habit_template_packs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    cover_image TEXT,
+    is_featured BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+## habit_template_pack_items
+
+```sql
+CREATE TABLE habit_template_pack_items (
+    pack_id UUID REFERENCES habit_template_packs(id) ON DELETE CASCADE,
+    template_id UUID REFERENCES habit_templates(id) ON DELETE CASCADE,
+    sort_order INTEGER DEFAULT 0,
+    PRIMARY KEY(pack_id, template_id)
+);
+```
+
+---
+
+# Analytics System
+
+Track analytics through events.
+
+Do NOT build analytics directly from transactional tables.
+
+---
+
+## analytics_events
+
+```sql
+CREATE TABLE analytics_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    event_name VARCHAR(100) NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+# Suggested Analytics Events
+
+* user_signed_up
+* login_success
+* login_failed
+* habit_created
+* habit_completed
+* habit_deleted
+* template_imported
+* pack_imported
+* streak_started
+* streak_broken
+
+---
+
+# Admin Dashboard Analytics
+
+## Overview Metrics
+
+* Total users
+* Active users today
+* Weekly active users
+* Monthly active users
+* New signups
+* Habit completion rate
+* Template adoption rate
+* Most popular templates
+* Most active categories
+
+---
+
+# Important Product Analytics
+
+## Retention
+
+Track:
+
+* Day 1 retention
+* Day 7 retention
+* Day 30 retention
+
+---
+
+## Template Analytics
+
+Track:
+
+* templates added most often
+* templates with highest completion rates
+* templates abandoned quickly
 
 Example:
 
-Workout:
-Current streak: 12 days
-Best streak: 28 days
-7. Weekly Summary
+Morning Walk
 
-Simple overview screen.
+* added by 4200 users
+* 67% 7-day retention
 
-Show:
+---
 
-Habits completed this week
-Completion percentage
-Best-performing habit
-Weakest habit
+# Admin Users Page
 
-Example:
+Admins can view:
 
-24/30 habits completed
-80% weekly consistency
+* name
+* email
+* signup date
+* last active
+* role
+* status
 
-Optional:
+SystemAdmin actions:
 
-Tiny chart/calendar heatmap
-8. Monthly Summary
+* promote to admin
+* suspend user
+* reactivate user
 
-Show:
+Admin actions:
 
-Total completion %
-Number of successful days
-Longest streak
-Most consistent habit
+* view users only
 
-Simple visual:
+---
 
-Calendar-style overview
-9. Goals System
+# Permission Middleware
 
-Keep this intentionally lightweight.
+Implement middleware guards.
 
-Small Goals
+Example permissions:
 
-Short-term goals.
+* manage_users
+* manage_roles
+* manage_templates
+* manage_categories
+* manage_packs
+* view_analytics
+* manage_system_settings
 
-Examples:
+Never hardcode admin checks directly.
 
-Workout 5 times this week
-Read 3 books this month
+Use permission-based access control.
 
-Fields:
+---
 
-Title
-Target number
-Deadline
-Progress
-Big Goals
+# API Security
 
-Long-term vision goals.
+Requirements:
 
-Examples:
+* validate all inputs
+* rate limit auth endpoints
+* secure admin routes
+* sanitize user content
+* use server-side authorization checks
+* never trust frontend role checks
 
-Get fit
-Build reading habit
-Learn design
+---
 
-Fields:
+# Suggested Admin UI Structure
 
-Title
-Description
-Linked habits
+```txt
+/admin
+├── dashboard
+├── users
+├── analytics
+├── templates
+├── templates/create
+├── templates/[id]
+├── categories
+├── packs
+├── roles
+└── settings
+```
 
-Purpose:
-Give meaning to habits.
+---
 
-10. Dashboard/Home Screen
+# Recommended Architecture Principles
 
-The most important screen.
+1. User habits are private
+2. Templates are platform-managed
+3. Analytics should be event-driven
+4. Roles should be permission-based
+5. Admin access must be secure
+6. Separate platform content from user data
+7. Build scalable SaaS-ready architecture
 
-Should show:
+---
 
-Today’s habits
-Current streaks
-Progress ring/bar
-Quick motivational summary
+# Future Expansion
 
-Example:
+Prepare architecture for:
 
-"3/5 habits completed today"
-"7 day streak 🔥"
-11. Notifications (Optional MVP+)
+* subscriptions
+* AI recommendations
+* team workspaces
+* social features
+* public habit sharing
+* notifications
+* gamification
+* achievement systems
+* recommendation engine
 
-Simple reminders:
+---
 
-Morning reminder
-Evening reminder
+# Recommended Implementation Order
 
-Avoid complex scheduling initially.
-
-12. Data Model (Simple)
-Habit
-id
-name
-frequency
-createdAt
-icon
-archived
-HabitEntry
-id
-habitId
-completedAt
-Goal
-id
-type (small/big)
-title
-target
-deadline
-linkedHabitIds
-13. Suggested Screens
-MVP Screens
-Onboarding
-Home Dashboard
-Add/Edit Habit
-Weekly Summary
-Monthly Summary
-Goals Screen
-Settings
-14. Nice-to-Have Features (NOT MVP)
-
-Only consider later:
-
-Habit notes/journal
-Widgets
-Dark mode themes
-Habit groups
-Sharing progress
-CSV export
-Advanced analytics
-15. Suggested Tech Stack (Simple)
-Frontend
-React Native / Expo
-OR
-Flutter
-Backend
-
-Simplest option:
-
-Supabase
-
-Why:
-
-Auth
-Database
-Realtime
-Easy setup
-Local-first option
-
-Could even start with:
-
-SQLite/local storage only
-16. MVP Success Criteria
-
-The app succeeds if users can:
-
-Add habits in under 1 minute
-Track daily habits in under 30 seconds
-Clearly see streak progress
-Understand weekly/monthly consistency instantly
-17. Future Direction
-
-Potential future evolution:
-
-Insights ("You miss habits most on weekends")
-Smart recommendations
-Mood tracking
-Habit templates
-
-But only after the core loop feels excellent.
-
-18. Recommended MVP Scope (Very Small)
-
-If you want the fastest possible v1:
-
-Include
-
-✅ Habit creation
-✅ Daily tracking
-✅ Streaks
-✅ Weekly summary
-✅ Monthly summary
-✅ Small + big goals
-
-Exclude
-
-❌ Social
-❌ AI
-❌ Gamification
-❌ Advanced charts
-❌ Teams/shared habits
-❌ Complex reminders
-
-19. Core User Flow
-Open app
-→ See today’s habits
-→ Tap completed habits
-→ Watch streak grow
-→ Review weekly/monthly progress
-→ Stay motivated
-20. Suggested Design Style
-
-Aim for:
-
-Minimal
-Calm
-Clean typography
-Lots of whitespace
-Soft colors
-Fast interactions
-
-Think:
-
-Less Notion
-More Apple Health / minimalist journaling app
-
-I need a tracker sheet like this as well: https://pin.it/4IJPGbngB
-
+1. RBAC system
+2. Permission middleware
+3. Admin routes/layout
+4. Users page
+5. Habit template system
+6. Categories & packs
+7. Analytics event tracking
+8. Dashboard analytics
+9. Advanced retention analytics
+10. Recommendation system

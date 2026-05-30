@@ -65,3 +65,14 @@ button, a, input {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+.ag-theme-quartz {
+  --ag-background-color: #ffffff;
+  --ag-foreground-color: #1f2937;
+  --ag-header-background-color: #f7f8fb;
+  --ag-header-foreground-color: #374151;
+  --ag-border-color: #e5e8ef;
+  --ag-row-hover-color: #f7f8fb;
+  --ag-selected-row-background-color: #eef5ff;
+  --ag-font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}

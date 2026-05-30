@@ -41,6 +41,14 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  const hasPermission = useCallback((permission) => (
+    Boolean(user?.permissions?.includes(permission))
+  ), [user]);
+
+  const hasAnyPermission = useCallback((permissions) => (
+    permissions.some((permission) => user?.permissions?.includes(permission))
+  ), [user]);
+
   const value = useMemo(() => ({
     user,
     loading,
@@ -49,7 +57,9 @@ export function AuthProvider({ children }) {
     logout,
     refreshUser,
     setUser,
-  }), [user, loading, login, signup, logout, refreshUser]);
+    hasPermission,
+    hasAnyPermission,
+  }), [user, loading, login, signup, logout, refreshUser, hasPermission, hasAnyPermission]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

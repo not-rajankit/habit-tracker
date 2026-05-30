@@ -58,3 +58,42 @@ export const getMonthlySummary = (date) => request(`/summary/monthly${date ? `?d
 export const getFocusSessions = (date) => request(`/focus-sessions${date ? `?date=${date}` : ''}`);
 export const createFocusSession = (data) => request('/focus-sessions', { method: 'POST', body: JSON.stringify(data) });
 export const deleteFocusSession = (id) => request(`/focus-sessions/${id}`, { method: 'DELETE' });
+
+// Templates
+export const getTemplateCategories = () => request('/templates/categories');
+export const getTemplates = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/templates${qs ? `?${qs}` : ''}`);
+};
+export const getTemplatePacks = () => request('/templates/packs');
+export const importTemplate = (id) => request(`/templates/${id}/import`, { method: 'POST' });
+export const importTemplatePack = (id) => request(`/templates/packs/${id}/import`, { method: 'POST' });
+
+// Admin
+export const getAdminOverview = () => request('/admin/overview');
+export const getAdminAnalytics = () => request('/admin/analytics');
+export const getAdminUsers = (params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/admin/users${qs ? `?${qs}` : ''}`);
+};
+export const updateAdminUserStatus = (id, status) => request(`/admin/users/${id}/status`, {
+  method: 'PATCH',
+  body: JSON.stringify({ status }),
+});
+export const getAdminRoles = () => request('/admin/roles');
+export const updateAdminUserRoles = (id, roles) => request(`/admin/users/${id}/roles`, {
+  method: 'PUT',
+  body: JSON.stringify({ roles }),
+});
+export const getAdminCategories = () => request('/admin/categories');
+export const createAdminCategory = (data) => request('/admin/categories', { method: 'POST', body: JSON.stringify(data) });
+export const updateAdminCategory = (id, data) => request(`/admin/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteAdminCategory = (id) => request(`/admin/categories/${id}`, { method: 'DELETE' });
+export const getAdminTemplates = () => request('/admin/templates');
+export const createAdminTemplate = (data) => request('/admin/templates', { method: 'POST', body: JSON.stringify(data) });
+export const updateAdminTemplate = (id, data) => request(`/admin/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteAdminTemplate = (id) => request(`/admin/templates/${id}`, { method: 'DELETE' });
+export const getAdminPacks = () => request('/admin/packs');
+export const createAdminPack = (data) => request('/admin/packs', { method: 'POST', body: JSON.stringify(data) });
+export const updateAdminPack = (id, data) => request(`/admin/packs/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteAdminPack = (id) => request(`/admin/packs/${id}`, { method: 'DELETE' });

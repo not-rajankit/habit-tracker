@@ -1,5 +1,6 @@
 import pool from '../db.js';
 import { authConfig } from './config.js';
+import { attachRolesAndPermissions } from './rbac.js';
 import { createOpaqueToken, hashToken, setSessionCookies, signAccessToken } from './tokens.js';
 
 export function publicUser(row) {
@@ -12,12 +13,20 @@ export function publicUser(row) {
     auth_provider: row.auth_provider,
     has_password: Boolean(row.password_hash),
     google_linked: Boolean(row.google_id),
+    status: row.status,
+    last_active_at: row.last_active_at,
+    roles: row.roles || [],
+    permissions: row.permissions || [],
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
 }
 
 export async function createSession(user, req, res) {
+  if (user.status === 'suspended') {
+    throw new Error('Account is suspended.');
+  }
+
   const refreshToken = createOpaqueToken();
   const refreshTokenHash = hashToken(refreshToken);
   const expiresAt = new Date(Date.now() + authConfig.refreshTokenDays * 24 * 60 * 60 * 1000);
@@ -32,6 +41,7 @@ export async function createSession(user, req, res) {
 
   const accessToken = signAccessToken(user, result.rows[0].id);
   setSessionCookies(res, accessToken, refreshToken);
+  await pool.query(`UPDATE authentication.users SET last_active_at = NOW() WHERE id = $1`, [user.id]);
 }
 
 export async function rotateRefreshSession(refreshToken, req, res) {
@@ -50,6 +60,8 @@ export async function rotateRefreshSession(refreshToken, req, res) {
   if (existing.rows.length === 0) return null;
 
   const row = existing.rows[0];
+  if (row.status === 'suspended') return null;
+
   await pool.query(
     `UPDATE authentication.refresh_tokens
      SET revoked_at = NOW(), updated_at = NOW()
@@ -58,7 +70,7 @@ export async function rotateRefreshSession(refreshToken, req, res) {
   );
 
   await createSession(row, req, res);
-  return row;
+  return attachRolesAndPermissions(row);
 }
 
 export async function revokeRefreshToken(refreshToken) {

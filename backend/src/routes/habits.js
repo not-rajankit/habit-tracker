@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { trackEvent } from '../analytics/events.js';
 import { addDays, toDateKey } from '../dateUtils.js';
 
 const router = Router();
@@ -52,6 +53,10 @@ router.post('/', async (req, res) => {
        RETURNING *`,
       [name, frequency, icon, category || null, req.user.id]
     );
+    await trackEvent('habit_created', {
+      userId: req.user.id,
+      metadata: { habit_id: result.rows[0].id, frequency: result.rows[0].frequency },
+    });
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating habit:', err);
@@ -95,6 +100,10 @@ router.delete('/:id/permanent', async (req, res) => {
       [id, req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
+    await trackEvent('habit_deleted', {
+      userId: req.user.id,
+      metadata: { habit_id: id, permanent: true },
+    });
     res.json({ message: 'Habit deleted' });
   } catch (err) {
     console.error('Error deleting habit:', err);
@@ -135,6 +144,10 @@ router.delete('/:id', async (req, res) => {
       [id, req.user.id]
     );
     if (result.rows.length === 0) return res.status(404).json({ error: 'Habit not found' });
+    await trackEvent('habit_deleted', {
+      userId: req.user.id,
+      metadata: { habit_id: id, permanent: false },
+    });
     res.json({ message: 'Habit archived' });
   } catch (err) {
     console.error('Error archiving habit:', err);

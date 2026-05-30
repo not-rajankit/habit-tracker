@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import pool from '../db.js';
+import { trackEvent } from '../analytics/events.js';
 import { toDateKey } from '../dateUtils.js';
 
 const router = Router();
@@ -34,6 +35,10 @@ router.post('/toggle', async (req, res) => {
         `INSERT INTO habit_entries (habit_id, date, updated_at) VALUES ($1, $2, NOW())`,
         [habit_id, entryDate]
       );
+      await trackEvent('habit_completed', {
+        userId: req.user.id,
+        metadata: { habit_id, date: entryDate },
+      });
       res.json({ completed: true, date: entryDate });
     }
   } catch (err) {

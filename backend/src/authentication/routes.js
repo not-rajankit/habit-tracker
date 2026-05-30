@@ -7,6 +7,8 @@ import { authRateLimit, strictAuthRateLimit } from './rateLimiters.js';
 import { createSession, publicUser, revokeRefreshToken, rotateRefreshSession } from './sessionService.js';
 import { clearGoogleStateCookie, clearSessionCookies, createOpaqueToken, hashToken, setGoogleStateCookie, verifyAccessToken } from './tokens.js';
 import { createGoogleState, exchangeGoogleCode, getGoogleAuthUrl, parseGoogleState } from './googleOAuth.js';
+import { attachRolesAndPermissions } from './rbac.js';
+import { trackEvent } from '../analytics/events.js';
 
 const router = Router();
 
@@ -61,8 +63,16 @@ router.post('/signup', strictAuthRateLimit, async (req, res) => {
       return res.status(409).json({ error: 'An account already exists for this email.' });
     }
 
-    await createSession(result.rows[0], req, res);
-    res.status(201).json({ user: publicUser(result.rows[0]) });
+    await pool.query(
+      `INSERT INTO authentication.user_roles (user_id, role_id)
+       SELECT $1, id FROM authentication.roles WHERE name = 'User'
+       ON CONFLICT DO NOTHING`,
+      [result.rows[0].id]
+    );
+    const user = await attachRolesAndPermissions(result.rows[0]);
+    await trackEvent('user_signed_up', { userId: user.id, metadata: { provider: 'password' } });
+    await createSession(user, req, res);
+    res.status(201).json({ user: publicUser(user) });
   } catch (err) {
     console.error('Signup failed:', err);
     res.status(500).json({ error: 'Could not create account' });
@@ -77,10 +87,19 @@ router.post('/login', strictAuthRateLimit, async (req, res) => {
     const result = await pool.query(`SELECT * FROM authentication.users WHERE email = $1`, [email]);
     const user = result.rows[0];
     const valid = user ? await verifyPassword(password, user.password_hash) : false;
-    if (!valid) return res.status(401).json({ error: 'Invalid email or password.' });
+    if (!valid) {
+      await trackEvent('login_failed', { metadata: { reason: 'invalid_credentials' } });
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    if (user.status === 'suspended') {
+      await trackEvent('login_failed', { userId: user.id, metadata: { reason: 'suspended' } });
+      return res.status(403).json({ error: 'Account is suspended.' });
+    }
 
-    await createSession(user, req, res);
-    res.json({ user: publicUser(user) });
+    const userWithAccess = await attachRolesAndPermissions(user);
+    await trackEvent('login_success', { userId: user.id, metadata: { provider: 'password' } });
+    await createSession(userWithAccess, req, res);
+    res.json({ user: publicUser(userWithAccess) });
   } catch (err) {
     console.error('Login failed:', err);
     res.status(500).json({ error: 'Could not sign in' });
@@ -157,7 +176,15 @@ router.get('/google/callback', authRateLimit, async (req, res) => {
       [email, profile.sub, profile.name || email.split('@')[0], profile.picture || null]
     );
 
-    await createSession(result.rows[0], req, res);
+    await pool.query(
+      `INSERT INTO authentication.user_roles (user_id, role_id)
+       SELECT $1, id FROM authentication.roles WHERE name = 'User'
+       ON CONFLICT DO NOTHING`,
+      [result.rows[0].id]
+    );
+    const user = await attachRolesAndPermissions(result.rows[0]);
+    await trackEvent('login_success', { userId: user.id, metadata: { provider: 'google' } });
+    await createSession(user, req, res);
     redirectAuthResult(res, 'success');
   } catch (err) {
     console.error('Google OAuth callback failed:', err);
@@ -175,7 +202,7 @@ router.put('/me', authenticate, async (req, res) => {
        RETURNING *`,
       [name, req.user.id]
     );
-    res.json({ user: publicUser(result.rows[0]) });
+    res.json({ user: publicUser(await attachRolesAndPermissions(result.rows[0])) });
   } catch (err) {
     console.error('Profile update failed:', err);
     res.status(500).json({ error: 'Could not update profile' });
@@ -203,7 +230,7 @@ router.post('/password/change', authenticate, strictAuthRateLimit, async (req, r
        RETURNING *`,
       [passwordHash, req.user.id]
     );
-    res.json({ user: publicUser(result.rows[0]) });
+    res.json({ user: publicUser(await attachRolesAndPermissions(result.rows[0])) });
   } catch (err) {
     console.error('Password change failed:', err);
     res.status(500).json({ error: 'Could not update password' });

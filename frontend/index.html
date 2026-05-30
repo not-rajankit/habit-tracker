@@ -6,6 +6,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Simple, calm habit tracker to build consistency and track streaks." />
     <title>Habit Tracker</title>
+    <script>
+      (() => {
+        const storageKey = 'habit-tracker-theme';
+        const allowedThemes = ['light', 'dark', 'paper'];
+        let theme = 'light';
+
+        try {
+          const stored = window.localStorage.getItem(storageKey);
+          if (allowedThemes.includes(stored)) {
+            theme = stored;
+          }
+        } catch (error) {
+          // Ignore storage access failures and fall back to the default theme.
+        }
+
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">

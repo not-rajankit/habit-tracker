@@ -2,6 +2,7 @@
   "name": "habit-tracker",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "app:start": "./scripts/run-app.sh start",
     "app:stop": "./scripts/run-app.sh stop",

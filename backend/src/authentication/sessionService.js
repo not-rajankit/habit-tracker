@@ -1,7 +1,14 @@
+import net from 'net';
 import pool from '../db.js';
 import { authConfig } from './config.js';
 import { attachRolesAndPermissions } from './rbac.js';
 import { createOpaqueToken, hashToken, setSessionCookies, signAccessToken } from './tokens.js';
+
+function getRequestIp(req) {
+  const forwarded = req.get('x-forwarded-for');
+  const candidate = forwarded ? forwarded.split(',')[0].trim() : req.ip;
+  return net.isIP(candidate) ? candidate : null;
+}
 
 export function publicUser(row) {
   if (!row) return null;
@@ -36,7 +43,7 @@ export async function createSession(user, req, res) {
        (user_id, token_hash, user_agent, ip_address, expires_at)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING id`,
-    [user.id, refreshTokenHash, req.get('user-agent') || null, req.ip || null, expiresAt.toISOString()]
+    [user.id, refreshTokenHash, req.get('user-agent') || null, getRequestIp(req), expiresAt.toISOString()]
   );
 
   const accessToken = signAccessToken(user, result.rows[0].id);

@@ -1,4 +1,9 @@
 const isProduction = process.env.NODE_ENV === 'production';
+const hasExplicitAuthSecret = Boolean(process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET);
+
+if (isProduction && !hasExplicitAuthSecret) {
+  throw new Error('Missing ACCESS_TOKEN_SECRET or JWT_SECRET in production environment');
+}
 
 export const authConfig = {
   accessTokenSecret: process.env.ACCESS_TOKEN_SECRET || process.env.JWT_SECRET || 'dev-access-secret-change-me',
